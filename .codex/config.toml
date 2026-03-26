@@ -1,0 +1,16 @@
+model = "gpt-5.4-thinking"
+approval_policy = "on-request"
+
+[windows]
+sandbox = "elevated"
+sandbox_private_desktop = true
+
+[tools]
+web_search = true
+
+[profiles.default]
+model = "gpt-5.4-thinking"
+approval_policy = "on-request"
+
+project_doc_fallback_filenames = ["TEAM_GUIDE.md", ".agents.md"]
+project_doc_max_bytes = 65536

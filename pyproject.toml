@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "turboquant-qwen35"
+version = "0.1.0"
+description = "Paper-faithful TurboQuant prototype for Qwen3.5-9B KV-cache experiments."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "accelerate>=1.5",
+  "bitsandbytes>=0.45",
+  "matplotlib>=3.9",
+  "numpy>=2.1",
+  "pandas>=2.2",
+  "pydantic>=2.10",
+  "safetensors>=0.5",
+  "scipy>=1.14",
+  "sentencepiece>=0.2",
+  "transformers>=4.52",
+]
+
+[project.optional-dependencies]
+cu128 = [
+  "torch>=2.5",
+]
+dev = [
+  "pytest>=8.3",
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu128", extra = "cu128" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.setuptools.packages.find]
+include = ["turboquant*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

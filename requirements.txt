@@ -1,0 +1,16 @@
+# Legacy pip fallback only.
+# Canonical setup is:
+#   uv python install 3.12.9
+#   uv venv --python 3.12.9
+#   uv sync --extra cu128 --extra dev
+accelerate>=1.5
+bitsandbytes>=0.45
+matplotlib>=3.9
+numpy>=2.1
+pandas>=2.2
+pydantic>=2.10
+pytest>=8.3
+safetensors>=0.5
+scipy>=1.14
+sentencepiece>=0.2
+transformers>=4.52
