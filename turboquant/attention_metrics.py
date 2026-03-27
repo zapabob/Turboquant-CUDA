@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 import torch
+import torch.nn.functional as F
 
 
 def cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -35,12 +36,28 @@ def topk_overlap_rate(reference: torch.Tensor, estimate: torch.Tensor, k: int) -
     return float((overlap.mean(dim=-1)).mean().item())
 
 
+def kl_divergence_from_logits(reference: torch.Tensor, estimate: torch.Tensor) -> float:
+    ref_log_probs = F.log_softmax(reference, dim=-1)
+    est_log_probs = F.log_softmax(estimate, dim=-1)
+    ref_probs = ref_log_probs.exp()
+    return float(F.kl_div(est_log_probs, ref_probs, reduction="batchmean", log_target=False).item())
+
+
+def relative_fro_error(reference: torch.Tensor, estimate: torch.Tensor) -> float:
+    denom = torch.linalg.vector_norm(reference.reshape(-1))
+    if denom <= 0:
+        return 0.0
+    return float((torch.linalg.vector_norm((estimate - reference).reshape(-1)) / denom).item())
+
+
 def summarize_attention_scores(reference: torch.Tensor, estimate: torch.Tensor) -> dict[str, float]:
     diff = estimate - reference
     return {
         "cosine_similarity": float(cosine_similarity(reference, estimate).item()),
         "mae": float(diff.abs().mean().item()),
         "mse": float(diff.square().mean().item()),
+        "kl_divergence": kl_divergence_from_logits(reference, estimate),
+        "relative_fro_error": relative_fro_error(reference, estimate),
         "spearman": float(spearman_rank_correlation(reference, estimate).item()),
         "top1_match": topk_match_rate(reference, estimate, k=1),
         "top5_overlap": topk_overlap_rate(reference, estimate, k=min(5, reference.shape[-1])),

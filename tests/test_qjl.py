@@ -23,3 +23,12 @@ def test_qjl_default_dim_is_paper_faithful() -> None:
 
     cfg = TurboQuantProdConfig(dim=64, total_bits=4)
     assert cfg.resolved_qjl_dim() == 64
+
+
+def test_qjl_decode_preserves_shape() -> None:
+    dim = 16
+    sketch = GaussianSignSketch(dim=dim, sketch_dim=64, seed=7, device="cpu", dtype="float32")
+    residual = torch.randn((3, dim), dtype=torch.float32)
+    encoded = sketch.encode(residual)
+    decoded = sketch.decode(encoded)
+    assert decoded.shape == residual.shape

@@ -11,17 +11,24 @@ from typing import Callable
 import pandas as pd
 import torch
 
+from turboquant.allocation import ChannelBitAllocation
 from turboquant.attention_metrics import summarize_attention_scores
 from turboquant.capture import CaptureMetadata, load_capture_metadata
 from turboquant.kv_codec import KVCodec, KVCodecConfig
 from turboquant.reporting import summarize_metric_trials
+from turboquant.types import TurboQuantMSEConfig, TurboQuantProdConfig
+from turboquant.turboquant_mse import TurboQuantMSE
+from turboquant.turboquant_prod import TurboQuantProd
+from turboquant.types import SensitivitySpec
 from turboquant.types import ValueCodecConfig
+from turboquant.value_codec import ProtectedValueCodec
 
 
 METRIC_COLUMNS = [
     "logit_cosine_similarity",
     "logit_mae",
     "logit_mse",
+    "next_logit_kl",
     "logit_spearman",
     "logit_top1_match",
     "logit_top5_match",
@@ -29,6 +36,7 @@ METRIC_COLUMNS = [
     "hidden_cosine_similarity",
     "hidden_mae",
     "hidden_mse",
+    "attention_output_relative_error",
     "memory_bits",
     "memory_ratio_vs_exact",
     "prefill_seconds",
@@ -82,9 +90,135 @@ def scaled_attention_output(logits: torch.Tensor, values: torch.Tensor, head_dim
     return torch.einsum("...qs,...sd->...qd", weights, values)
 
 
+def _seed_value(trial: int, layer_idx: int, salt: int) -> int:
+    return 20_000 + (trial * 1_009) + (layer_idx * 131) + salt
+
+
+def _mse_allocation(bits: float, width: int) -> ChannelBitAllocation | None:
+    if float(bits).is_integer():
+        return None
+    return ChannelBitAllocation.preset(effective_bits=bits, width=width)
+
+
+def _prod_allocation(bits: float, width: int) -> ChannelBitAllocation | None:
+    if float(bits).is_integer():
+        return None
+    effective_bits = bits - 1.0
+    if effective_bits <= 0.0:
+        raise ValueError("Prod effective Stage 1 bits must remain positive")
+    return ChannelBitAllocation.preset(effective_bits=effective_bits, width=width)
+
+
+def _base_kv_codec(
+    *,
+    keys: torch.Tensor,
+    bit_value: float,
+    rotation_policy: str,
+    rotation_seed: int,
+    qjl_seed: int,
+    value_codec: ValueCodecConfig | None = None,
+) -> KVCodec:
+    integer_bits = int(math.floor(bit_value))
+    return KVCodec(
+        KVCodecConfig(
+            head_dim=keys.shape[-1],
+            key_bits=integer_bits,
+            value_bits=integer_bits,
+            mixed_key_bits=bit_value if not float(bit_value).is_integer() else None,
+            mixed_value_bits=bit_value if not float(bit_value).is_integer() else None,
+            device=str(keys.device),
+            dtype=dtype_name(keys.dtype),
+            rotation_policy=rotation_policy,
+            rotation_seed=rotation_seed,
+            qjl_seed=qjl_seed,
+            value_codec=value_codec or ValueCodecConfig(base_bits=integer_bits),
+        )
+    )
+
+
+def _attention_weights_from_exact(exact_logits: torch.Tensor, head_dim: int) -> torch.Tensor:
+    return torch.softmax(exact_logits / math.sqrt(float(head_dim)), dim=-1)
+
+
+def _build_value_mse_quantizer(
+    *,
+    values: torch.Tensor,
+    bit_value: float,
+    rotation_policy: str,
+    rotation_seed: int,
+) -> tuple[TurboQuantMSE, ChannelBitAllocation | None]:
+    integer_bits = int(math.floor(bit_value))
+    quantizer = TurboQuantMSE(
+        TurboQuantMSEConfig(
+            dim=values.shape[-1],
+            bits=integer_bits,
+            device=str(values.device),
+            dtype=dtype_name(values.dtype),
+            rotation_policy=rotation_policy,
+            rotation_seed=rotation_seed,
+        )
+    )
+    return quantizer, _mse_allocation(bit_value, values.shape[-1])
+
+
+def _build_value_prod_quantizer(
+    *,
+    values: torch.Tensor,
+    bit_value: float,
+    rotation_policy: str,
+    rotation_seed: int,
+    qjl_seed: int,
+) -> tuple[TurboQuantProd, ChannelBitAllocation | None]:
+    integer_bits = int(math.floor(bit_value))
+    quantizer = TurboQuantProd(
+        TurboQuantProdConfig(
+            dim=values.shape[-1],
+            total_bits=integer_bits,
+            device=str(values.device),
+            dtype=dtype_name(values.dtype),
+            rotation_policy=rotation_policy,
+            rotation_seed=rotation_seed,
+            qjl_seed=qjl_seed,
+        )
+    )
+    return quantizer, _prod_allocation(bit_value, values.shape[-1])
+
+
+def _build_protected_value_codec(
+    *,
+    values: torch.Tensor,
+    base_bits: int,
+    rotation_policy: str,
+    rotation_seed: int,
+    protected_fraction: float,
+    secondary_fraction: float,
+    high_bits: int,
+    low_rank_rank: int,
+    score_source: str,
+    channel_group_size: int = 8,
+) -> ProtectedValueCodec:
+    return ProtectedValueCodec(
+        dim=values.shape[-1],
+        config=ValueCodecConfig(
+            base_bits=base_bits,
+            protected_fraction=protected_fraction,
+            secondary_fraction=secondary_fraction,
+            high_bits=high_bits,
+            low_rank_rank=low_rank_rank,
+            channel_group_size=channel_group_size,
+            sensitivity=SensitivitySpec(score_source=score_source),
+        ),
+        rotation_seed=rotation_seed,
+        rotation_policy=rotation_policy,
+        device=str(values.device),
+        dtype=dtype_name(values.dtype),
+    )
+
+
 def melt_metric_rows(frame: pd.DataFrame) -> pd.DataFrame:
-    id_vars = [column for column in frame.columns if column not in METRIC_COLUMNS]
-    return frame.melt(id_vars=id_vars, value_vars=METRIC_COLUMNS, var_name="metric", value_name="value")
+    present_metrics = [column for column in METRIC_COLUMNS if column in frame.columns]
+    id_vars = [column for column in frame.columns if column not in present_metrics]
+    return frame.melt(id_vars=id_vars, value_vars=present_metrics, var_name="metric", value_name="value")
 
 
 def summarize_trial_metrics(frame: pd.DataFrame) -> pd.DataFrame:
@@ -149,6 +283,7 @@ def _evaluate_mode(
     codec: KVCodec | None,
     value_mode: str,
     calibrate_codec: bool,
+    mode_metadata: dict[str, float | int | str] | None = None,
 ) -> dict[str, float | int | str]:
     device = keys.device
     exact_logits = codec.estimator.exact(queries, keys) if codec is not None else torch.einsum("...qd,...sd->...qs", queries, keys)
@@ -171,7 +306,7 @@ def _evaluate_mode(
         _ = scaled_attention_output(decode_logits, values, head_dim=keys.shape[-1])
         _sync_if_cuda(device)
         decode_seconds = time.perf_counter() - decode_started
-        return {
+        row = {
             "dataset": dataset,
             "trial": trial,
             "layer": layer_idx,
@@ -181,6 +316,7 @@ def _evaluate_mode(
             "logit_cosine_similarity": 1.0,
             "logit_mae": 0.0,
             "logit_mse": 0.0,
+            "next_logit_kl": 0.0,
             "logit_spearman": 1.0,
             "logit_top1_match": 1.0,
             "logit_top5_match": 1.0,
@@ -188,12 +324,16 @@ def _evaluate_mode(
             "hidden_cosine_similarity": 1.0,
             "hidden_mae": 0.0,
             "hidden_mse": 0.0,
+            "attention_output_relative_error": 0.0,
             "memory_bits": float(exact_memory_bits),
             "memory_ratio_vs_exact": 1.0,
             "prefill_seconds": prefill_seconds,
             "decode_seconds": decode_seconds,
             "peak_vram_mb": _peak_vram_mb(device),
         }
+        if mode_metadata is not None:
+            row.update(mode_metadata)
+        return row
 
     if codec is None:
         raise ValueError("codec is required for quantized modes")
@@ -241,7 +381,7 @@ def _evaluate_mode(
     elif value_mode == "protected" and protected_values is not None:
         memory_bits = codec.key_storage_bits(encoded_keys) + codec.protected_value_storage_bits(protected_values)
 
-    return {
+    row = {
         "dataset": dataset,
         "trial": trial,
         "layer": layer_idx,
@@ -251,6 +391,7 @@ def _evaluate_mode(
         "logit_cosine_similarity": logit_metrics["cosine_similarity"],
         "logit_mae": logit_metrics["mae"],
         "logit_mse": logit_metrics["mse"],
+        "next_logit_kl": logit_metrics["kl_divergence"],
         "logit_spearman": logit_metrics["spearman"],
         "logit_top1_match": logit_metrics["top1_match"],
         "logit_top5_match": logit_metrics["top5_match"],
@@ -258,12 +399,144 @@ def _evaluate_mode(
         "hidden_cosine_similarity": hidden_metrics["cosine_similarity"],
         "hidden_mae": hidden_metrics["mae"],
         "hidden_mse": hidden_metrics["mse"],
+        "attention_output_relative_error": hidden_metrics["relative_fro_error"],
         "memory_bits": float(memory_bits),
         "memory_ratio_vs_exact": float(memory_bits) / float(exact_memory_bits),
         "prefill_seconds": prefill_seconds,
         "decode_seconds": decode_seconds,
         "peak_vram_mb": _peak_vram_mb(device),
     }
+    if mode_metadata is not None:
+        row.update(mode_metadata)
+    return row
+
+
+def _evaluate_value_decoder_mode(
+    *,
+    dataset: str,
+    layer_idx: int,
+    trial: int,
+    bit_setting: str,
+    bits: float,
+    mode: str,
+    keys: torch.Tensor,
+    values: torch.Tensor,
+    queries: torch.Tensor,
+    key_codec: KVCodec,
+    value_strategy: str,
+    value_rotation_policy: str,
+    rotation_seed: int,
+    qjl_seed: int,
+    low_rank_rank: int = 0,
+    protected_fraction: float = 0.10,
+    secondary_fraction: float = 0.10,
+    high_bits: int = 8,
+    score_source: str = "attention-output-sensitivity",
+    channel_group_size: int = 8,
+) -> dict[str, float | int | str]:
+    device = keys.device
+    exact_logits = key_codec.estimator.exact(queries, keys)
+    exact_hidden = scaled_attention_output(exact_logits, values, head_dim=keys.shape[-1])
+    exact_memory_bits = raw_storage_bits(keys) + raw_storage_bits(values)
+    attention_weights = _attention_weights_from_exact(exact_logits, keys.shape[-1])
+
+    _sync_if_cuda(device)
+    _reset_peak_if_cuda(device)
+    started = time.perf_counter()
+    encoded_keys = key_codec.encode_keys(keys)
+    estimated_logits = key_codec.estimator.turboquant(queries, encoded_keys)
+
+    if value_strategy == "mse":
+        value_quantizer, allocation = _build_value_mse_quantizer(
+            values=values,
+            bit_value=bits,
+            rotation_policy=value_rotation_policy,
+            rotation_seed=rotation_seed,
+        )
+        if value_rotation_policy == "block_so8_learned":
+            value_quantizer.fit_rotation(values, queries=queries)
+        encoded_values = value_quantizer.quantize(values, allocation=allocation)
+        decoded_values = value_quantizer.dequantize(encoded_values)
+        value_bits = encoded_values.total_bits()
+    elif value_strategy == "prod":
+        value_quantizer, allocation = _build_value_prod_quantizer(
+            values=values,
+            bit_value=bits,
+            rotation_policy=value_rotation_policy,
+            rotation_seed=rotation_seed,
+            qjl_seed=qjl_seed,
+        )
+        if value_rotation_policy == "block_so8_learned":
+            value_quantizer.fit_rotation(values, queries=queries)
+        encoded_values = value_quantizer.quantize(values, allocation=allocation)
+        decoded_values = value_quantizer.transport_decode(encoded_values)
+        value_bits = encoded_values.total_bits()
+    elif value_strategy == "protected":
+        value_codec = _build_protected_value_codec(
+            values=values,
+            base_bits=int(math.floor(bits)),
+            rotation_policy=value_rotation_policy,
+            rotation_seed=rotation_seed,
+            protected_fraction=protected_fraction,
+            secondary_fraction=secondary_fraction,
+            high_bits=high_bits,
+            low_rank_rank=low_rank_rank,
+            score_source=score_source,
+            channel_group_size=channel_group_size,
+        )
+        value_codec.calibrate(values, attention_weights=attention_weights)
+        encoded_values = value_codec.encode(values)
+        decoded_values = value_codec.decode(encoded_values)
+        value_bits = value_codec.storage_bits(encoded_values)
+    else:
+        raise ValueError(f"Unsupported value_strategy={value_strategy!r}")
+
+    _sync_if_cuda(device)
+    prefill_seconds = time.perf_counter() - started
+
+    _sync_if_cuda(device)
+    decode_started = time.perf_counter()
+    last_query = queries[..., -1:, :]
+    decode_logits = key_codec.estimator.turboquant(last_query, encoded_keys)
+    _ = scaled_attention_output(decode_logits, decoded_values, head_dim=keys.shape[-1])
+    _sync_if_cuda(device)
+    decode_seconds = time.perf_counter() - decode_started
+
+    hidden = scaled_attention_output(estimated_logits, decoded_values, head_dim=keys.shape[-1])
+    logit_metrics = summarize_attention_scores(exact_logits, estimated_logits)
+    hidden_metrics = summarize_attention_scores(exact_hidden, hidden)
+
+    row = {
+        "dataset": dataset,
+        "trial": trial,
+        "layer": layer_idx,
+        "mode": mode,
+        "bit_setting": bit_setting,
+        "bits": float(bits),
+        "logit_cosine_similarity": logit_metrics["cosine_similarity"],
+        "logit_mae": logit_metrics["mae"],
+        "logit_mse": logit_metrics["mse"],
+        "next_logit_kl": logit_metrics["kl_divergence"],
+        "logit_spearman": logit_metrics["spearman"],
+        "logit_top1_match": logit_metrics["top1_match"],
+        "logit_top5_match": logit_metrics["top5_match"],
+        "logit_top5_overlap": logit_metrics["top5_overlap"],
+        "hidden_cosine_similarity": hidden_metrics["cosine_similarity"],
+        "hidden_mae": hidden_metrics["mae"],
+        "hidden_mse": hidden_metrics["mse"],
+        "attention_output_relative_error": hidden_metrics["relative_fro_error"],
+        "memory_bits": float(key_codec.key_storage_bits(encoded_keys) + value_bits),
+        "memory_ratio_vs_exact": float(key_codec.key_storage_bits(encoded_keys) + value_bits) / float(exact_memory_bits),
+        "prefill_seconds": prefill_seconds,
+        "decode_seconds": decode_seconds,
+        "peak_vram_mb": _peak_vram_mb(device),
+        "key_mode": "key_only_block_so8_learned",
+        "value_mode": value_strategy,
+        "value_rotation_policy": value_rotation_policy,
+        "rotation_seed": rotation_seed,
+        "qjl_seed": qjl_seed,
+    }
+    return row
 
 
 def evaluate_layer_grid(
@@ -303,36 +576,26 @@ def evaluate_layer_grid(
     if progress_callback is not None:
         progress_callback(exact_row)
     for bit_value in bit_grid:
-        key_bits = int(math.floor(bit_value))
         bit_setting = f"{bit_value:g}"
-        base_kwargs = dict(
-            head_dim=keys.shape[-1],
-            key_bits=key_bits,
-            value_bits=key_bits,
-            mixed_key_bits=bit_value if not float(bit_value).is_integer() else None,
-            mixed_value_bits=bit_value if not float(bit_value).is_integer() else None,
-            device=str(keys.device),
-            dtype=dtype_name(keys.dtype),
-        )
-        specs = [
-            ("key_only_random", "random_haar", "exact", False, 0),
-            ("key_only_block_so8_static", "block_so8_static", "exact", False, 0),
-            ("key_only_block_so8_learned", "block_so8_learned", "exact", True, 0),
-            ("protected_v", "block_so8_learned", "protected", True, 0),
-            ("protected_v_lowrank", "block_so8_learned", "protected", True, 4),
-            ("full_kv", "random_haar", "full_kv", False, 0),
+        random_seed = _seed_value(trial, layer_idx, 11 + int(bit_value * 10))
+        static_seed = _seed_value(trial, layer_idx, 29 + int(bit_value * 10))
+        learned_seed = _seed_value(trial, layer_idx, 47 + int(bit_value * 10))
+        qjl_seed = _seed_value(trial, layer_idx, 83 + int(bit_value * 10))
+
+        key_only_specs = [
+            ("key_only_random", "random_haar", "exact", False, 0, random_seed, qjl_seed),
+            ("key_only_block_so8_static", "block_so8_static", "exact", False, 0, static_seed, qjl_seed),
+            ("key_only_block_so8_learned", "block_so8_learned", "exact", True, 0, learned_seed, qjl_seed),
+            ("full_kv", "random_haar", "full_kv", False, 0, random_seed, qjl_seed),
         ]
-        for mode, rotation_policy, value_mode, calibrate_codec, low_rank_rank in specs:
-            value_codec = ValueCodecConfig(
-                base_bits=key_bits,
-                low_rank_rank=low_rank_rank,
-            )
-            codec = KVCodec(
-                KVCodecConfig(
-                    **base_kwargs,
-                    rotation_policy=rotation_policy,
-                    value_codec=value_codec,
-                )
+        for mode, rotation_policy, value_mode, calibrate_codec, low_rank_rank, rotation_seed, mode_qjl_seed in key_only_specs:
+            codec = _base_kv_codec(
+                keys=keys,
+                bit_value=bit_value,
+                rotation_policy=rotation_policy,
+                rotation_seed=rotation_seed,
+                qjl_seed=mode_qjl_seed,
+                value_codec=ValueCodecConfig(base_bits=int(math.floor(bit_value)), low_rank_rank=low_rank_rank),
             )
             mode_row = _evaluate_mode(
                 dataset=dataset,
@@ -347,10 +610,306 @@ def evaluate_layer_grid(
                 codec=codec,
                 value_mode=value_mode,
                 calibrate_codec=calibrate_codec,
+                mode_metadata={
+                    "key_mode": mode if mode.startswith("key_only") else "full_kv",
+                    "value_mode": value_mode,
+                    "value_rotation_policy": rotation_policy if value_mode == "full_kv" else "exact",
+                    "rotation_seed": rotation_seed,
+                    "qjl_seed": mode_qjl_seed,
+                },
             )
             rows.append(mode_row)
             if progress_callback is not None:
                 progress_callback(mode_row)
+
+        learned_key_codec = _base_kv_codec(
+            keys=keys,
+            bit_value=bit_value,
+            rotation_policy="block_so8_learned",
+            rotation_seed=learned_seed,
+            qjl_seed=qjl_seed,
+            value_codec=ValueCodecConfig(base_bits=int(math.floor(bit_value))),
+        )
+        learned_key_codec.calibrate(keys=keys, values=values, queries=queries)
+
+        value_specs = [
+            ("v_mse_random", "mse", "random_haar", 0),
+            ("v_mse_block_so8", "mse", "block_so8_static", 0),
+            ("v_prod_random", "prod", "random_haar", 0),
+            ("v_prod_block_so8", "prod", "block_so8_static", 0),
+            ("protected_v", "protected", "block_so8_learned", 0),
+            ("protected_v_lowrank", "protected", "block_so8_learned", 4),
+        ]
+        for mode, value_strategy, value_rotation_policy, low_rank_rank in value_specs:
+            mode_row = _evaluate_value_decoder_mode(
+                dataset=dataset,
+                layer_idx=layer_idx,
+                trial=trial,
+                bit_setting=bit_setting,
+                bits=bit_value,
+                mode=mode,
+                keys=keys,
+                values=values,
+                queries=queries,
+                key_codec=learned_key_codec,
+                value_strategy=value_strategy,
+                value_rotation_policy=value_rotation_policy,
+                rotation_seed=learned_seed,
+                qjl_seed=qjl_seed,
+                low_rank_rank=low_rank_rank,
+            )
+            rows.append(mode_row)
+            if progress_callback is not None:
+                progress_callback(mode_row)
+    return rows
+
+
+def compute_value_sensitivity_rows(
+    *,
+    dataset: str,
+    keys: torch.Tensor,
+    values: torch.Tensor,
+    trial: int,
+    layer_idx: int,
+    eval_device: str | torch.device | None = None,
+    group_size: int = 8,
+) -> list[dict[str, float | int | str]]:
+    rows: list[dict[str, float | int | str]] = []
+    target_device = torch.device(eval_device) if eval_device is not None else keys.device
+    if keys.device != target_device:
+        keys = keys.to(target_device)
+    if values.device != target_device:
+        values = values.to(target_device)
+    queries = select_queries(keys, seed=40_000 + (trial * 257) + layer_idx)
+    exact_logits = torch.einsum("...qd,...sd->...qs", queries, keys)
+    attention_weights = _attention_weights_from_exact(exact_logits, keys.shape[-1])
+
+    for score_source in ("attention-output-sensitivity", "teacher-gradient-proxy"):
+        codec = _build_protected_value_codec(
+            values=values,
+            base_bits=2,
+            rotation_policy="block_so8_learned",
+            rotation_seed=_seed_value(trial, layer_idx, 191),
+            protected_fraction=0.10,
+            secondary_fraction=0.10,
+            high_bits=8,
+            low_rank_rank=0,
+            score_source=score_source,
+            channel_group_size=group_size,
+        )
+        codec.calibrate(values, attention_weights=attention_weights)
+        channel_scores = codec.channel_sensitivity()
+        group_scores = codec.group_sensitivity()
+        if channel_scores is None or group_scores is None:
+            continue
+        layer_score = float(channel_scores.mean().item())
+        rows.append(
+            {
+                "dataset": dataset,
+                "trial": trial,
+                "layer": layer_idx,
+                "score_source": score_source,
+                "granularity": "per-layer",
+                "head_index": -1,
+                "channel_index": -1,
+                "group_index": -1,
+                "score": layer_score,
+            }
+        )
+        for head_index in range(channel_scores.shape[0]):
+            rows.append(
+                {
+                    "dataset": dataset,
+                    "trial": trial,
+                    "layer": layer_idx,
+                    "score_source": score_source,
+                    "granularity": "per-head",
+                    "head_index": head_index,
+                    "channel_index": -1,
+                    "group_index": -1,
+                    "score": float(channel_scores[head_index].mean().item()),
+                }
+            )
+            for group_index in range(group_scores.shape[-1]):
+                rows.append(
+                    {
+                        "dataset": dataset,
+                        "trial": trial,
+                        "layer": layer_idx,
+                        "score_source": score_source,
+                        "granularity": "per-group",
+                        "head_index": head_index,
+                        "channel_index": -1,
+                        "group_index": group_index,
+                        "score": float(group_scores[head_index, group_index].item()),
+                    }
+                )
+            for channel_index in range(channel_scores.shape[-1]):
+                rows.append(
+                    {
+                        "dataset": dataset,
+                        "trial": trial,
+                        "layer": layer_idx,
+                        "score_source": score_source,
+                        "granularity": "per-channel",
+                        "head_index": head_index,
+                        "channel_index": channel_index,
+                        "group_index": channel_index // group_size,
+                        "score": float(channel_scores[head_index, channel_index].item()),
+                    }
+                )
+    return rows
+
+
+def summarize_value_sensitivity(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    return summarize_metric_trials(
+        frame.rename(columns={"score": "value"}),
+        group_columns=["dataset", "score_source", "granularity", "layer", "head_index", "channel_index", "group_index"],
+    )
+
+
+def compose_sensitive_layer_policy_rows(
+    *,
+    trial_frame: pd.DataFrame,
+    sensitivity_frame: pd.DataFrame,
+    top_fraction: float = 0.25,
+) -> pd.DataFrame:
+    if trial_frame.empty or sensitivity_frame.empty:
+        return pd.DataFrame()
+    layer_scores = sensitivity_frame.loc[
+        (sensitivity_frame["score_source"] == "teacher-gradient-proxy")
+        & (sensitivity_frame["granularity"] == "per-layer")
+    ].copy()
+    if layer_scores.empty:
+        return pd.DataFrame()
+    ranked = layer_scores.groupby("layer", as_index=False)["score"].mean().sort_values("score", ascending=False)
+    top_count = max(1, int(math.ceil(len(ranked) * top_fraction)))
+    selected_layers = set(int(value) for value in ranked.head(top_count)["layer"].tolist())
+
+    rows: list[dict[str, float | int | str]] = []
+    exact_rows_all = trial_frame.loc[trial_frame["mode"] == "exact"]
+    full_rows_all = trial_frame.loc[trial_frame["mode"] == "full_kv"]
+    for bit_setting, bit_group in full_rows_all.groupby("bit_setting", sort=True):
+        exact_rows = exact_rows_all.loc[exact_rows_all["layer"].isin(selected_layers)]
+        full_rows = bit_group.loc[~bit_group["layer"].isin(selected_layers)]
+        combined = pd.concat([exact_rows, full_rows], ignore_index=True)
+        if combined.empty:
+            continue
+        row: dict[str, float | int | str] = {
+            "dataset": combined["dataset"].iloc[0],
+            "mode": "sensitive_layers_only_exact_v",
+            "bit_setting": bit_setting,
+            "bits": float(combined["bits"].dropna().iloc[0]) if combined["bits"].notna().any() else float("nan"),
+            "selected_layer_count": len(selected_layers),
+            "selected_layers": ",".join(str(value) for value in sorted(selected_layers)),
+        }
+        for metric in METRIC_COLUMNS:
+            row[metric] = float(combined[metric].mean())
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def evaluate_value_protection_grid(
+    *,
+    dataset: str,
+    keys: torch.Tensor,
+    values: torch.Tensor,
+    trial: int,
+    layer_idx: int,
+    eval_device: str | torch.device | None = None,
+    alphas: tuple[float, ...] = (0.05, 0.10, 0.20, 0.30),
+    betas: tuple[float, ...] = (0.00, 0.10, 0.20),
+    high_bits_grid: tuple[int, ...] = (4, 8),
+    low_bits_grid: tuple[int, ...] = (2, 3),
+    ranks: tuple[int, ...] = (0, 2, 4, 8),
+    score_source: str = "teacher-gradient-proxy",
+    channel_group_size: int = 8,
+) -> list[dict[str, float | int | str]]:
+    rows: list[dict[str, float | int | str]] = []
+    target_device = torch.device(eval_device) if eval_device is not None else keys.device
+    if keys.device != target_device:
+        keys = keys.to(target_device)
+    if values.device != target_device:
+        values = values.to(target_device)
+    queries = select_queries(keys, seed=60_000 + (trial * 257) + layer_idx)
+    rotation_seed = _seed_value(trial, layer_idx, 271)
+    qjl_seed = _seed_value(trial, layer_idx, 313)
+    key_codec = _base_kv_codec(
+        keys=keys,
+        bit_value=4.0,
+        rotation_policy="block_so8_learned",
+        rotation_seed=rotation_seed,
+        qjl_seed=qjl_seed,
+        value_codec=ValueCodecConfig(base_bits=2),
+    )
+    key_codec.calibrate(keys=keys, values=values, queries=queries)
+    exact_bits = raw_storage_bits(keys) + raw_storage_bits(values)
+    encoded_keys = key_codec.encode_keys(keys)
+    key_only_ratio = float(key_codec.key_storage_bits(encoded_keys) + raw_storage_bits(values)) / float(exact_bits)
+
+    for low_bits in low_bits_grid:
+        low_quantizer = TurboQuantMSE(
+            TurboQuantMSEConfig(
+                dim=values.shape[-1],
+                bits=low_bits,
+                device=str(values.device),
+                dtype=dtype_name(values.dtype),
+                rotation_policy="block_so8_static",
+                rotation_seed=rotation_seed,
+            )
+        )
+        low_encoded = low_quantizer.quantize(values)
+        low_ratio = float(key_codec.key_storage_bits(encoded_keys) + low_encoded.total_bits()) / float(exact_bits)
+        for high_bits in high_bits_grid:
+            high_quantizer = TurboQuantMSE(
+                TurboQuantMSEConfig(
+                    dim=values.shape[-1],
+                    bits=high_bits,
+                    device=str(values.device),
+                    dtype=dtype_name(values.dtype),
+                    rotation_policy="block_so8_static",
+                    rotation_seed=rotation_seed,
+                )
+            )
+            high_encoded = high_quantizer.quantize(values)
+            high_ratio = float(key_codec.key_storage_bits(encoded_keys) + high_encoded.total_bits()) / float(exact_bits)
+            for alpha in alphas:
+                for beta in betas:
+                    if alpha + beta > 1.0:
+                        continue
+                    for rank in ranks:
+                        row = _evaluate_value_decoder_mode(
+                            dataset=dataset,
+                            layer_idx=layer_idx,
+                            trial=trial,
+                            bit_setting=f"{low_bits:g}",
+                            bits=float(low_bits),
+                            mode="protected_v_grid" if rank == 0 else "protected_v_lowrank_grid",
+                            keys=keys,
+                            values=values,
+                            queries=queries,
+                            key_codec=key_codec,
+                            value_strategy="protected",
+                            value_rotation_policy="block_so8_learned",
+                            rotation_seed=rotation_seed,
+                            qjl_seed=qjl_seed,
+                            low_rank_rank=rank,
+                            protected_fraction=alpha,
+                            secondary_fraction=beta,
+                            high_bits=high_bits,
+                            score_source=score_source,
+                            channel_group_size=channel_group_size,
+                        )
+                        meta_ratio = float((2 * values.shape[1] * values.shape[-1]) / max(exact_bits, 1))
+                        row["protected_fraction"] = alpha
+                        row["secondary_fraction"] = beta
+                        row["high_bits"] = high_bits
+                        row["low_bits"] = low_bits
+                        row["low_rank_rank"] = rank
+                        row["memory_ratio_approx"] = low_ratio + (alpha * (key_only_ratio - low_ratio)) + (beta * (high_ratio - low_ratio)) + meta_ratio
+                        rows.append(row)
     return rows
 
 

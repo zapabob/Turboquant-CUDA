@@ -31,8 +31,8 @@ def test_protected_value_codec_builds_expected_masks() -> None:
     codec.calibrate(values, attention_weights=attention_weights)
     assert codec.exact_channel_mask is not None
     assert codec.high_precision_mask is not None
-    assert int(codec.exact_channel_mask.sum().item()) == 8
-    assert int(codec.high_precision_mask.sum().item()) == 8
+    assert int(codec.exact_channel_mask.sum().item()) == 16
+    assert int(codec.high_precision_mask.sum().item()) == 16
 
 
 def test_protected_value_codec_roundtrip_and_ratio() -> None:

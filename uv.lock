@@ -1042,18 +1042,13 @@ name = "turboquant-qwen35"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "accelerate" },
-    { name = "bitsandbytes" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "plotly" },
     { name = "pydantic" },
-    { name = "safetensors" },
     { name = "scipy" },
-    { name = "sentencepiece" },
     { name = "tqdm" },
-    { name = "transformers" },
 ]
 
 [package.optional-dependencies]
@@ -1063,25 +1058,32 @@ cu128 = [
 dev = [
     { name = "pytest" },
 ]
+hf-qwen = [
+    { name = "accelerate" },
+    { name = "bitsandbytes" },
+    { name = "safetensors" },
+    { name = "sentencepiece" },
+    { name = "transformers" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate", specifier = ">=1.5" },
-    { name = "bitsandbytes", specifier = ">=0.45" },
+    { name = "accelerate", marker = "extra == 'hf-qwen'", specifier = ">=1.5" },
+    { name = "bitsandbytes", marker = "extra == 'hf-qwen'", specifier = ">=0.45" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "plotly", specifier = ">=6.0" },
     { name = "pydantic", specifier = ">=2.10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
-    { name = "safetensors", specifier = ">=0.5" },
+    { name = "safetensors", marker = "extra == 'hf-qwen'", specifier = ">=0.5" },
     { name = "scipy", specifier = ">=1.14" },
-    { name = "sentencepiece", specifier = ">=0.2" },
+    { name = "sentencepiece", marker = "extra == 'hf-qwen'", specifier = ">=0.2" },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.5", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "turboquant-qwen35", extra = "cu128" } },
     { name = "tqdm", specifier = ">=4.67" },
-    { name = "transformers", specifier = ">=4.52" },
+    { name = "transformers", marker = "extra == 'hf-qwen'", specifier = ">=4.52" },
 ]
-provides-extras = ["cu128", "dev"]
+provides-extras = ["cu128", "dev", "hf-qwen"]
 
 [[package]]
 name = "typer"

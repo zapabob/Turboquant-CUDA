@@ -14,14 +14,19 @@ import torch
 from tqdm.auto import tqdm
 
 from turboquant.analysis import (
+    compose_sensitive_layer_policy_rows,
+    compute_value_sensitivity_rows,
     evaluate_layer_grid,
+    evaluate_value_protection_grid,
     load_captured_runs,
     melt_metric_rows,
+    summarize_value_sensitivity,
     summarize_layer_thresholds,
     summarize_trial_metrics,
     synthetic_kv,
 )
 from turboquant.io_utils import ensure_dir
+from turboquant.reporting import summarize_metric_trials
 from turboquant.runtime import DEFAULT_MODEL_ID, require_supported_python
 
 
@@ -42,6 +47,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--head-dim", type=int, default=128)
     parser.add_argument("--max-layers", type=int, default=0)
     parser.add_argument("--bits", default="2,2.5,3,3.5,4")
+    parser.add_argument("--sensitivity-group-size", type=int, default=8)
+    parser.add_argument("--protection-grid-layer-limit", type=int, default=1)
     parser.add_argument("--eval-device", default="auto")
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
@@ -70,7 +77,21 @@ def configure_logging(level_name: str) -> None:
 
 
 def total_mode_steps(bit_grid: list[float]) -> int:
-    return 1 + (len(bit_grid) * 6)
+    return 1 + (len(bit_grid) * 10)
+
+
+def selected_captured_bundles(args: argparse.Namespace):
+    bundles = load_captured_runs(Path(args.kv_dir))
+    if args.max_layers <= 0:
+        return bundles
+    per_capture: dict[str, list] = {}
+    for bundle in bundles:
+        capture_id = bundle.metadata.capture_id or bundle.capture_dir.name
+        per_capture.setdefault(capture_id, []).append(bundle)
+    selected = []
+    for capture_id in sorted(per_capture):
+        selected.extend(per_capture[capture_id][: args.max_layers])
+    return selected
 
 
 def synthetic_rows(args: argparse.Namespace, bit_grid: list[float]) -> list[dict[str, float | int | str]]:
@@ -121,22 +142,12 @@ def synthetic_rows(args: argparse.Namespace, bit_grid: list[float]) -> list[dict
 
 
 def captured_rows(args: argparse.Namespace, bit_grid: list[float]) -> tuple[list[dict[str, float | int | str]], str]:
-    kv_dir = Path(args.kv_dir)
-    bundles = load_captured_runs(kv_dir)
+    bundles = selected_captured_bundles(args)
     rows: list[dict[str, float | int | str]] = []
     eval_device = resolve_eval_device(args.eval_device)
-    selected_bundles = bundles
-    if args.max_layers > 0:
-        per_capture: dict[str, list] = {}
-        for bundle in bundles:
-            capture_id = bundle.metadata.capture_id or bundle.capture_dir.name
-            per_capture.setdefault(capture_id, []).append(bundle)
-        selected_bundles = []
-        for capture_id in sorted(per_capture):
-            selected_bundles.extend(per_capture[capture_id][: args.max_layers])
-    model_name = selected_bundles[0].metadata.model_name
+    model_name = bundles[0].metadata.model_name
     progress = tqdm(
-        total=args.trials * len(selected_bundles) * total_mode_steps(bit_grid),
+        total=args.trials * len(bundles) * total_mode_steps(bit_grid),
         desc="captured replay",
         unit="mode",
         dynamic_ncols=True,
@@ -151,7 +162,7 @@ def captured_rows(args: argparse.Namespace, bit_grid: list[float]) -> tuple[list
         progress.update(1)
 
     for trial in range(args.trials):
-        for bundle in selected_bundles:
+        for bundle in bundles:
             LOGGER.info(
                 "captured trial=%s prompt=%s capture_id=%s layer=%s device=%s",
                 trial,
@@ -196,9 +207,14 @@ def metric_table(
         "key_only_random": 1,
         "key_only_block_so8_static": 2,
         "key_only_block_so8_learned": 3,
-        "protected_v": 4,
-        "protected_v_lowrank": 5,
-        "full_kv": 6,
+        "v_mse_random": 4,
+        "v_mse_block_so8": 5,
+        "v_prod_random": 6,
+        "v_prod_block_so8": 7,
+        "protected_v": 8,
+        "protected_v_lowrank": 9,
+        "full_kv": 10,
+        "sensitive_layers_only_exact_v": 11,
     }
     bit_order = {"exact": -1.0, "2": 2.0, "2.5": 2.5, "3": 3.0, "3.5": 3.5, "4": 4.0}
     subset = frame.loc[
@@ -274,6 +290,14 @@ def markdown_summary(
                     f"drift more than key quantization alone. At {top_bit} bits, full-KV trails "
                     f"block-SO(8) key-only by {top_gap:.4f} hidden-state cosine."
                 )
+            if {"v_mse_block_so8", "v_prod_block_so8"}.issubset(grouped.columns):
+                v_gap = (grouped["v_mse_block_so8"] - grouped["v_prod_block_so8"]).sort_values(ascending=False)
+                if not v_gap.empty and float(v_gap.iloc[0]) > 0.0:
+                    bottleneck_line += (
+                        " Captured replay also indicates that Prod-style residual transport is weaker than "
+                        f"MSE transport for V; the largest hidden-cosine gap is {float(v_gap.iloc[0]):.4f} "
+                        f"at {v_gap.index[0]} bits."
+                    )
     recommendation_line = runtime_default_recommendation(summary_frame, query_source)
     try:
         primary_table = metric_table(
@@ -391,6 +415,88 @@ def main() -> int:
     summary_frame["query_source"] = args.query_source
     summary_frame.to_csv(output_dir / "attention_summary.csv", index=False)
     summary_frame.to_csv(output_dir / f"attention_summary_{args.query_source}.csv", index=False)
+
+    if args.query_source == "captured":
+        eval_device = resolve_eval_device(args.eval_device)
+        bundles = selected_captured_bundles(args)
+        sensitivity_rows: list[dict[str, float | int | str]] = []
+        protection_rows: list[dict[str, float | int | str]] = []
+        for trial in range(args.trials):
+            for bundle in bundles:
+                sensitivity_rows.extend(
+                    compute_value_sensitivity_rows(
+                        dataset="captured",
+                        keys=bundle.keys,
+                        values=bundle.values,
+                        trial=trial,
+                        layer_idx=bundle.layer_idx,
+                        eval_device=eval_device,
+                        group_size=args.sensitivity_group_size,
+                    )
+                )
+            for bundle in bundles[: max(0, args.protection_grid_layer_limit)]:
+                protection_rows.extend(
+                    evaluate_value_protection_grid(
+                        dataset="captured",
+                        keys=bundle.keys,
+                        values=bundle.values,
+                        trial=trial,
+                        layer_idx=bundle.layer_idx,
+                        eval_device=eval_device,
+                        channel_group_size=args.sensitivity_group_size,
+                    )
+                )
+
+        if sensitivity_rows:
+            sensitivity_frame = pd.DataFrame(sensitivity_rows)
+            sensitivity_frame["model_id"] = model_id
+            sensitivity_frame["query_source"] = args.query_source
+            sensitivity_frame.to_csv(output_dir / "value_sensitivity.csv", index=False)
+            sensitivity_frame.to_csv(output_dir / f"value_sensitivity_{args.query_source}.csv", index=False)
+
+            sensitivity_summary = summarize_value_sensitivity(sensitivity_frame)
+            sensitivity_summary["model_id"] = model_id
+            sensitivity_summary["query_source"] = args.query_source
+            sensitivity_summary.to_csv(output_dir / "value_sensitivity_summary.csv", index=False)
+            sensitivity_summary.to_csv(output_dir / f"value_sensitivity_summary_{args.query_source}.csv", index=False)
+
+            layer_policy_frame = compose_sensitive_layer_policy_rows(
+                trial_frame=trial_frame,
+                sensitivity_frame=sensitivity_frame,
+            )
+            if not layer_policy_frame.empty:
+                layer_policy_frame["model_id"] = model_id
+                layer_policy_frame["query_source"] = args.query_source
+                layer_policy_frame.to_csv(output_dir / "sensitive_layer_policy.csv", index=False)
+                layer_policy_frame.to_csv(output_dir / f"sensitive_layer_policy_{args.query_source}.csv", index=False)
+
+        if protection_rows:
+            protection_frame = pd.DataFrame(protection_rows)
+            protection_frame["model_id"] = model_id
+            protection_frame["query_source"] = args.query_source
+            protection_frame.to_csv(output_dir / "value_protection_grid.csv", index=False)
+            protection_frame.to_csv(output_dir / f"value_protection_grid_{args.query_source}.csv", index=False)
+
+            protection_long = melt_metric_rows(protection_frame)
+            protection_summary = summarize_metric_trials(
+                protection_long,
+                group_columns=[
+                    "dataset",
+                    "mode",
+                    "bit_setting",
+                    "bits",
+                    "protected_fraction",
+                    "secondary_fraction",
+                    "high_bits",
+                    "low_bits",
+                    "low_rank_rank",
+                    "metric",
+                ],
+            )
+            protection_summary["model_id"] = model_id
+            protection_summary["query_source"] = args.query_source
+            protection_summary.to_csv(output_dir / "value_protection_grid_summary.csv", index=False)
+            protection_summary.to_csv(output_dir / f"value_protection_grid_summary_{args.query_source}.csv", index=False)
 
     threshold_rows = [
         summarize_layer_thresholds(trial_frame, metric="hidden_cosine_similarity", threshold=0.99),

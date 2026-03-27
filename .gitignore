@@ -6,3 +6,5 @@ __pycache__/
 .cache/
 .codex/
 artifacts/kv/
+artifacts/metrics_smoke/
+artifacts/metrics_smoke_captured/

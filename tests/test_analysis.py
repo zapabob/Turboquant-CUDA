@@ -3,7 +3,13 @@ from __future__ import annotations
 import pandas as pd
 import torch
 
-from turboquant.analysis import evaluate_layer_grid, melt_metric_rows, summarize_layer_thresholds
+from turboquant.analysis import (
+    compute_value_sensitivity_rows,
+    evaluate_layer_grid,
+    evaluate_value_protection_grid,
+    melt_metric_rows,
+    summarize_layer_thresholds,
+)
 
 
 def test_evaluate_layer_grid_emits_research_modes() -> None:
@@ -25,14 +31,58 @@ def test_evaluate_layer_grid_emits_research_modes() -> None:
         "key_only_random",
         "key_only_block_so8_static",
         "key_only_block_so8_learned",
+        "v_mse_random",
+        "v_mse_block_so8",
+        "v_prod_random",
+        "v_prod_block_so8",
         "protected_v",
         "protected_v_lowrank",
         "full_kv",
     } <= modes
     sample = rows[0]
     assert "peak_vram_mb" in sample
-    assert "prefill_seconds" in sample
-    assert "decode_seconds" in sample
+    assert "next_logit_kl" in sample
+    assert "attention_output_relative_error" in sample
+
+
+def test_value_sensitivity_rows_emit_multiple_granularities() -> None:
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(1)
+    keys = torch.randn((1, 2, 8, 16), generator=generator, dtype=torch.float32)
+    values = torch.randn((1, 2, 8, 16), generator=generator, dtype=torch.float32)
+    rows = compute_value_sensitivity_rows(
+        dataset="synthetic",
+        keys=keys,
+        values=values,
+        trial=0,
+        layer_idx=0,
+    )
+    granularities = {row["granularity"] for row in rows}
+    assert {"per-layer", "per-head", "per-channel", "per-group"} <= granularities
+
+
+def test_value_protection_grid_emits_research_rows() -> None:
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(2)
+    keys = torch.randn((1, 2, 8, 16), generator=generator, dtype=torch.float32)
+    values = torch.randn((1, 2, 8, 16), generator=generator, dtype=torch.float32)
+    rows = evaluate_value_protection_grid(
+        dataset="synthetic",
+        keys=keys,
+        values=values,
+        trial=0,
+        layer_idx=0,
+        low_bits_grid=(2,),
+        high_bits_grid=(4,),
+        alphas=(0.1,),
+        betas=(0.0,),
+        ranks=(0, 2),
+    )
+    modes = {row["mode"] for row in rows}
+    assert {"protected_v_grid", "protected_v_lowrank_grid"} <= modes
+    assert "memory_ratio_approx" in rows[0]
+    assert "prefill_seconds" in rows[0]
+    assert "decode_seconds" in rows[0]
 
 
 def test_melt_metric_rows_exposes_long_metrics() -> None:

@@ -10,7 +10,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from turboquant.capture import (
     CaptureMetadata,
@@ -50,6 +49,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_model_kwargs(args: argparse.Namespace) -> dict[str, object]:
+    from transformers import BitsAndBytesConfig
+
     model_kwargs: dict[str, object] = {
         "trust_remote_code": args.trust_remote_code,
     }
@@ -121,6 +122,14 @@ def save_single_capture(
 
 
 def main() -> int:
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except ImportError as exc:
+        raise RuntimeError(
+            "capture_qwen_kv.py requires the optional HF/Qwen dependencies. "
+            "Install with `uv sync --extra cu128 --extra dev --extra hf_qwen`."
+        ) from exc
+
     require_supported_python()
     args = parse_args()
     if args.model_preset is not None:

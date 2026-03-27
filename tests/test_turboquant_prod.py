@@ -26,3 +26,13 @@ def test_turboquant_prod_supports_mixed_bit_allocation() -> None:
     allocation = ChannelBitAllocation.preset(effective_bits=3.5, width=128)
     encoded = quantizer.quantize(x, allocation=allocation)
     assert encoded.mse.bitwidths.shape == x.shape
+
+
+def test_turboquant_prod_transport_decode_matches_input_shape() -> None:
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(2)
+    x = torch.randn((4, 32), generator=generator, dtype=torch.float32)
+    quantizer = TurboQuantProd(TurboQuantProdConfig(dim=32, total_bits=3, device="cpu", dtype="float32"))
+    encoded = quantizer.quantize(x)
+    decoded = quantizer.transport_decode(encoded)
+    assert decoded.shape == x.shape

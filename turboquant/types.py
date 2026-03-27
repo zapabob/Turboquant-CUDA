@@ -33,6 +33,7 @@ class ValueCodecConfig:
     low_rank_rank: int = 0
     low_rank_coeff_bits: int = 16
     secondary_fraction: float = 0.10
+    channel_group_size: int = 8
     sensitivity: SensitivitySpec = field(default_factory=SensitivitySpec)
 
 

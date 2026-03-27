@@ -21,6 +21,19 @@ PLOTS_DIR = ARTIFACT_ROOT / "plots"
 REPORTS_DIR = ARTIFACT_ROOT / "reports"
 
 QUALITY_METRICS = ["logit_cosine_similarity", "hidden_cosine_similarity", "memory_ratio_vs_exact"]
+PLOT_MODES = [
+    "exact",
+    "key_only_random",
+    "key_only_block_so8_static",
+    "key_only_block_so8_learned",
+    "v_mse_random",
+    "v_mse_block_so8",
+    "v_prod_random",
+    "v_prod_block_so8",
+    "protected_v",
+    "protected_v_lowrank",
+    "full_kv",
+]
 
 
 def _metric_label(metric: str) -> str:
@@ -45,24 +58,20 @@ def _mode_label(mode: str) -> str:
         "key_only_random": "Key-Only (Random)",
         "key_only_block_so8_static": "Key-Only (SO8 Static)",
         "key_only_block_so8_learned": "Key-Only (SO8 Learned)",
+        "v_mse_random": "V-MSE (Random)",
+        "v_mse_block_so8": "V-MSE (SO8)",
+        "v_prod_random": "V-Prod (Random)",
+        "v_prod_block_so8": "V-Prod (SO8)",
         "protected_v": "Protected-V",
         "protected_v_lowrank": "Protected-V + LR",
         "full_kv": "Full-KV",
+        "sensitive_layers_only_exact_v": "Sensitive Layers Exact-V",
     }.get(mode, mode)
 
 
 def render_attention_matplotlib(summary: pd.DataFrame, output_path: Path) -> None:
     quantized = summary.loc[
-        summary["mode"].isin(
-            [
-                "key_only_random",
-                "key_only_block_so8_static",
-                "key_only_block_so8_learned",
-                "protected_v",
-                "protected_v_lowrank",
-                "full_kv",
-            ]
-        )
+        summary["mode"].isin([mode for mode in PLOT_MODES if mode != "exact"])
     ].copy()
     metrics = ["logit_cosine_similarity", "hidden_cosine_similarity", "memory_ratio_vs_exact"]
     fig, axes = plt.subplots(1, len(metrics), figsize=(18, 5), constrained_layout=True)
@@ -93,16 +102,7 @@ def render_attention_matplotlib(summary: pd.DataFrame, output_path: Path) -> Non
 
 def render_attention_plotly(summary: pd.DataFrame, output_path: Path) -> None:
     quantized = summary.loc[
-        summary["mode"].isin(
-            [
-                "key_only_random",
-                "key_only_block_so8_static",
-                "key_only_block_so8_learned",
-                "protected_v",
-                "protected_v_lowrank",
-                "full_kv",
-            ]
-        )
+        summary["mode"].isin([mode for mode in PLOT_MODES if mode != "exact"])
     ].copy()
     metrics = ["logit_cosine_similarity", "hidden_cosine_similarity", "memory_ratio_vs_exact"]
     fig = make_subplots(rows=1, cols=len(metrics), subplot_titles=[_metric_label(metric) for metric in metrics])
@@ -127,17 +127,7 @@ def render_attention_plotly(summary: pd.DataFrame, output_path: Path) -> None:
 
 def render_runtime_matplotlib(summary: pd.DataFrame, output_path: Path) -> None:
     quantized = summary.loc[
-        summary["mode"].isin(
-            [
-                "exact",
-                "key_only_random",
-                "key_only_block_so8_static",
-                "key_only_block_so8_learned",
-                "protected_v",
-                "protected_v_lowrank",
-                "full_kv",
-            ]
-        )
+        summary["mode"].isin(PLOT_MODES)
     ].copy()
     metrics = ["prefill_seconds", "decode_seconds", "peak_vram_mb"]
     fig, axes = plt.subplots(1, len(metrics), figsize=(18, 5), constrained_layout=True)
@@ -165,17 +155,7 @@ def render_runtime_matplotlib(summary: pd.DataFrame, output_path: Path) -> None:
 
 def render_runtime_plotly(summary: pd.DataFrame, output_path: Path) -> None:
     quantized = summary.loc[
-        summary["mode"].isin(
-            [
-                "exact",
-                "key_only_random",
-                "key_only_block_so8_static",
-                "key_only_block_so8_learned",
-                "protected_v",
-                "protected_v_lowrank",
-                "full_kv",
-            ]
-        )
+        summary["mode"].isin(PLOT_MODES)
     ].copy()
     metrics = ["prefill_seconds", "decode_seconds", "peak_vram_mb"]
     fig = make_subplots(rows=1, cols=len(metrics), subplot_titles=[_metric_label(metric) for metric in metrics])
@@ -230,6 +210,8 @@ def runtime_bottleneck_line(attention_summary: pd.DataFrame) -> str:
             attention_summary["mode"].isin(
                 [
                     "key_only_block_so8_learned",
+                    "v_mse_block_so8",
+                    "v_prod_block_so8",
                     "protected_v",
                     "protected_v_lowrank",
                     "full_kv",
@@ -252,6 +234,10 @@ def runtime_bottleneck_line(attention_summary: pd.DataFrame) -> str:
         protected_gap = pivot["protected_v"] - pivot["full_kv"]
         if protected_gap.notna().any():
             extra_line = f" Protected-V improves over full-KV by up to {float(protected_gap.max()):.4f} hidden cosine."
+    if {"v_mse_block_so8", "v_prod_block_so8"}.issubset(pivot.columns):
+        v_gap = pivot["v_mse_block_so8"] - pivot["v_prod_block_so8"]
+        if v_gap.notna().any():
+            extra_line += f" V-MSE also beats V-Prod by up to {float(v_gap.max()):.4f} hidden cosine."
     return (
         "Current mathematical bottleneck: value quantization drives most of the downstream hidden-state drift. "
         f"At {strongest} bits, learned-SO(8) key-only exceeds full-KV by {float(gap.iloc[0]):.4f} hidden cosine."
@@ -303,9 +289,13 @@ def compact_table(frame: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
         "key_only_random": 1,
         "key_only_block_so8_static": 2,
         "key_only_block_so8_learned": 3,
-        "protected_v": 4,
-        "protected_v_lowrank": 5,
-        "full_kv": 6,
+        "v_mse_random": 4,
+        "v_mse_block_so8": 5,
+        "v_prod_random": 6,
+        "v_prod_block_so8": 7,
+        "protected_v": 8,
+        "protected_v_lowrank": 9,
+        "full_kv": 10,
     }
     bit_order = {"exact": -1.0, "2": 2.0, "2.5": 2.5, "3": 3.0, "3.5": 3.5, "4": 4.0}
     subset = frame.loc[
@@ -316,6 +306,10 @@ def compact_table(frame: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
                 "key_only_random",
                 "key_only_block_so8_static",
                 "key_only_block_so8_learned",
+                "v_mse_random",
+                "v_mse_block_so8",
+                "v_prod_random",
+                "v_prod_block_so8",
                 "protected_v",
                 "protected_v_lowrank",
                 "full_kv",

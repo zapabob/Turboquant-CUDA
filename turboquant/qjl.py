@@ -73,6 +73,21 @@ class GaussianSignSketch:
         )
         return estimate
 
+    def decode(self, sketch: QJLSketch) -> torch.Tensor:
+        """Back-project the 1-bit sketch into a residual vector estimate.
+
+        This is not used by the paper-faithful key-side estimator, but it is a
+        useful research ablation for testing whether the QJL residual path is a
+        poor transport codec for values.
+        """
+
+        if sketch.dim != self.dim:
+            raise ValueError(f"Expected sketch dimension {self.dim}, got {sketch.dim}")
+        signs_pm = sketch.signs.to(dtype=self.dtype).mul(2.0).sub(1.0)
+        decoded = math.sqrt(math.pi / 2.0) * torch.einsum("...m,md->...d", signs_pm, self.matrix)
+        decoded = decoded / float(self.sketch_dim)
+        return decoded * sketch.norms
+
     def pairwise_estimate(self, q: torch.Tensor, sketch: QJLSketch) -> torch.Tensor:
         """Estimate pairwise inner products for q:[..., Q, D] and sketch:[..., S, M]."""
 

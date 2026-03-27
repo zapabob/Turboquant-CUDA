@@ -60,6 +60,18 @@ class TurboQuantProd:
     def dequantize(self, encoded: QuantizedProdBatch) -> torch.Tensor:
         return self.mse_quantizer.dequantize(encoded.mse)
 
+    def transport_decode(self, encoded: QuantizedProdBatch) -> torch.Tensor:
+        """Decode a full vector approximation using the Stage 1 path plus a QJL back-projection.
+
+        The paper uses the QJL residual only for unbiased inner-product
+        estimation. This transport decode is intentionally research-only and is
+        used to test whether a Prod-style residual path is a poor value codec.
+        """
+
+        mse = self.dequantize(encoded)
+        residual = self.qjl.decode(encoded.qjl)
+        return mse + residual
+
     def estimate_inner_product(self, y: torch.Tensor, encoded: QuantizedProdBatch) -> torch.Tensor:
         if y.device != self.device:
             raise ValueError(f"Expected y on {self.device}, got {y.device}")
