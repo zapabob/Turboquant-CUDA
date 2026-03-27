@@ -1,0 +1,122 @@
+{
+  "artifact_refs": {
+    "mean_pm_sd_csv": "artifacts/paper_baseline/qwen_captured_reported/metrics/attention_summary_captured_mean_pm_sd.csv",
+    "statistics_omnibus_csv": "artifacts/paper_baseline/qwen_captured_reported/metrics/attention_statistics_omnibus.csv",
+    "statistics_pairwise_csv": "artifacts/paper_baseline/qwen_captured_reported/metrics/attention_statistics_pairwise.csv",
+    "summary_csv": "artifacts/paper_baseline/qwen_captured_reported/metrics/attention_summary_captured.csv"
+  },
+  "evaluation_grid": {
+    "bit_grid": [
+      2.0,
+      2.5,
+      3.0,
+      3.5,
+      4.0
+    ],
+    "dim": 128,
+    "modes": [
+      "exact",
+      "key_only_random",
+      "full_kv"
+    ],
+    "qjl_seed": 1
+  },
+  "mode_configs": {
+    "exact": {
+      "bits_total": null,
+      "codebook_kind": "sphere-lloyd-max",
+      "mixed_bit_policy": {
+        "enabled": false,
+        "high_bits": null,
+        "high_count": null,
+        "low_bits": null,
+        "presets": {
+          "2.5": {
+            "high_bits": 3,
+            "high_count": 32,
+            "low_bits": 2,
+            "selector": "paper_outlier_magnitude"
+          },
+          "3.5": {
+            "high_bits": 4,
+            "high_count": 32,
+            "low_bits": 3,
+            "selector": "paper_outlier_magnitude"
+          }
+        },
+        "selector": "paper_outlier_magnitude"
+      },
+      "mode": "exact",
+      "mse_bits": null,
+      "norm_mode": "explicit",
+      "qjl_bits": null,
+      "rotation_policy": "random_haar",
+      "rotation_seed": 0
+    },
+    "full_kv": {
+      "bits_total": null,
+      "codebook_kind": "sphere-lloyd-max",
+      "mixed_bit_policy": {
+        "enabled": true,
+        "high_bits": null,
+        "high_count": null,
+        "low_bits": null,
+        "presets": {
+          "2.5": {
+            "high_bits": 3,
+            "high_count": 32,
+            "low_bits": 2,
+            "selector": "paper_outlier_magnitude"
+          },
+          "3.5": {
+            "high_bits": 4,
+            "high_count": 32,
+            "low_bits": 3,
+            "selector": "paper_outlier_magnitude"
+          }
+        },
+        "selector": "paper_outlier_magnitude"
+      },
+      "mode": "full_kv",
+      "mse_bits": null,
+      "norm_mode": "explicit",
+      "qjl_bits": 1,
+      "rotation_policy": "random_haar",
+      "rotation_seed": 0
+    },
+    "key_only_random": {
+      "bits_total": null,
+      "codebook_kind": "sphere-lloyd-max",
+      "mixed_bit_policy": {
+        "enabled": true,
+        "high_bits": null,
+        "high_count": null,
+        "low_bits": null,
+        "presets": {
+          "2.5": {
+            "high_bits": 3,
+            "high_count": 32,
+            "low_bits": 2,
+            "selector": "paper_outlier_magnitude"
+          },
+          "3.5": {
+            "high_bits": 4,
+            "high_count": 32,
+            "low_bits": 3,
+            "selector": "paper_outlier_magnitude"
+          }
+        },
+        "selector": "paper_outlier_magnitude"
+      },
+      "mode": "key_only_random",
+      "mse_bits": null,
+      "norm_mode": "explicit",
+      "qjl_bits": 1,
+      "rotation_policy": "random_haar",
+      "rotation_seed": 0
+    }
+  },
+  "runtime_target": "hf_qwen_captured_replay",
+  "schema_kind": "paper_baseline",
+  "version": 1
+}

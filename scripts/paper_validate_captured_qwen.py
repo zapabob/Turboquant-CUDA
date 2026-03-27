@@ -8,8 +8,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from scripts.export_report import (
     render_attention_matplotlib,
@@ -20,6 +20,7 @@ from scripts.export_report import (
 from turboquant.analysis import load_captured_runs, summarize_trial_metrics
 from turboquant.io_utils import ensure_dir
 from turboquant.paper_baseline import evaluate_paper_attention_grid
+from turboquant.schema import build_paper_turboquant_config, write_turboquant_config
 
 
 ARTIFACT_ROOT = Path("artifacts") / "paper_baseline" / "qwen_captured"
@@ -36,42 +37,42 @@ def markdown_table(frame: pd.DataFrame) -> str:
     return "\n".join([header, separator, *rows])
 
 
-def build_mean_pm_mse_table(summary_frame: pd.DataFrame) -> pd.DataFrame:
+def build_mean_pm_sd_table(summary_frame: pd.DataFrame) -> pd.DataFrame:
     metrics = {
-        "logit_cosine_similarity": "logit_cosine_mean_pm_mse",
-        "hidden_cosine_similarity": "hidden_cosine_mean_pm_mse",
-        "memory_ratio_vs_exact": "memory_ratio_mean_pm_mse",
+        "logit_cosine_similarity": "logit_cosine_mean_pm_sd",
+        "hidden_cosine_similarity": "hidden_cosine_mean_pm_sd",
+        "memory_ratio_vs_exact": "memory_ratio_mean_pm_sd",
     }
     rows: list[dict[str, str | float]] = []
     for mode in ("key_only_random", "full_kv"):
         for bit_setting in ("2", "2.5", "3", "3.5", "4"):
-            record: dict[str, str | float] = {"mode": mode, "bit_setting": bit_setting}
-            subset = summary_frame.loc[(summary_frame["mode"] == mode) & (summary_frame["bit_setting"].astype(str) == bit_setting)]
+            subset = summary_frame.loc[
+                (summary_frame["mode"] == mode) & (summary_frame["bit_setting"].astype(str) == bit_setting)
+            ]
             if subset.empty:
                 continue
+            record: dict[str, str | float] = {"mode": mode, "bit_setting": bit_setting}
             for metric, label in metrics.items():
                 metric_row = subset.loc[subset["metric"] == metric]
-                mse_metric = metric.replace("cosine_similarity", "mse")
-                mse_row = subset.loc[subset["metric"] == mse_metric] if "cosine" in metric else metric_row
                 if metric_row.empty:
                     continue
                 mean_value = float(metric_row["mean"].iloc[0])
-                mse_value = float(mse_row["mean"].iloc[0]) if not mse_row.empty else float("nan")
-                record[label] = f"{mean_value:.6f} ± {mse_value:.6f}"
+                sd_value = float(metric_row["std"].iloc[0])
+                record[label] = f"{mean_value:.6f} +/- {sd_value:.6f}"
                 record[f"{metric}_mean"] = mean_value
-                record[f"{metric}_mse"] = mse_value
+                record[f"{metric}_sd"] = sd_value
             rows.append(record)
     return pd.DataFrame(rows)
 
 
-def render_mean_pm_mse_plot(summary_table: pd.DataFrame, output_path: Path) -> None:
+def render_mean_pm_sd_plot(summary_table: pd.DataFrame, output_path: Path) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.5), constrained_layout=True)
     metric_pairs = [
-        ("logit_cosine_similarity_mean", "logit_cosine_similarity_mse", "Logit Cosine"),
-        ("hidden_cosine_similarity_mean", "hidden_cosine_similarity_mse", "Hidden Cosine"),
-        ("memory_ratio_vs_exact_mean", "memory_ratio_vs_exact_mse", "Memory Ratio"),
+        ("logit_cosine_similarity_mean", "logit_cosine_similarity_sd", "Logit Cosine"),
+        ("hidden_cosine_similarity_mean", "hidden_cosine_similarity_sd", "Hidden Cosine"),
+        ("memory_ratio_vs_exact_mean", "memory_ratio_vs_exact_sd", "Memory Ratio"),
     ]
-    for axis, (mean_col, mse_col, title) in zip(axes, metric_pairs, strict=True):
+    for axis, (mean_col, sd_col, title) in zip(axes, metric_pairs, strict=True):
         for mode in ("key_only_random", "full_kv"):
             mode_frame = summary_table.loc[summary_table["mode"] == mode].copy()
             if mode_frame.empty or mean_col not in mode_frame.columns:
@@ -79,12 +80,12 @@ def render_mean_pm_mse_plot(summary_table: pd.DataFrame, output_path: Path) -> N
             axis.errorbar(
                 mode_frame["bit_setting"].astype(float),
                 mode_frame[mean_col],
-                yerr=mode_frame[mse_col].fillna(0.0),
+                yerr=mode_frame[sd_col].fillna(0.0),
                 marker="o",
                 capsize=4,
                 label=mode,
             )
-        axis.set_title(f"{title} (mean ± mse)")
+        axis.set_title(f"{title} (mean +/- sd)")
         axis.set_xlabel("Bits")
         axis.grid(alpha=0.3)
     axes[0].legend()
@@ -99,6 +100,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-layers", type=int, default=0)
     parser.add_argument("--bits", default="2,2.5,3,3.5,4")
     parser.add_argument("--output-dir", default=str(ARTIFACT_ROOT))
+    parser.add_argument("--write-config", action="store_true")
+    parser.add_argument("--config-out", default=None)
     return parser.parse_args()
 
 
@@ -134,27 +137,41 @@ def main() -> int:
     trial_path = metrics_dir / "attention_trials_captured.csv"
     summary_path = metrics_dir / "attention_summary_captured.csv"
     markdown_path = metrics_dir / "attention_summary_captured.md"
-    mean_pm_mse_path = metrics_dir / "attention_summary_captured_mean_pm_mse.csv"
-    mean_pm_mse_markdown_path = metrics_dir / "attention_summary_captured_mean_pm_mse.md"
+    mean_pm_sd_path = metrics_dir / "attention_summary_captured_mean_pm_sd.csv"
+    mean_pm_sd_markdown_path = metrics_dir / "attention_summary_captured_mean_pm_sd.md"
+
     trial_frame.to_csv(trial_path, index=False)
     summary_frame.to_csv(summary_path, index=False)
     markdown_path.write_text(markdown_table(summary_frame), encoding="utf-8")
 
-    mean_pm_mse_table = build_mean_pm_mse_table(summary_frame)
-    mean_pm_mse_table.to_csv(mean_pm_mse_path, index=False)
-    mean_pm_mse_markdown_path.write_text(markdown_table(mean_pm_mse_table), encoding="utf-8")
+    mean_pm_sd_table = build_mean_pm_sd_table(summary_frame)
+    mean_pm_sd_table.to_csv(mean_pm_sd_path, index=False)
+    mean_pm_sd_markdown_path.write_text(markdown_table(mean_pm_sd_table), encoding="utf-8")
 
     render_attention_matplotlib(summary_frame, plots_dir / "attention_tradeoffs_captured.png")
     render_attention_plotly(summary_frame, plots_dir / "attention_tradeoffs_captured.html")
     render_runtime_matplotlib(summary_frame, plots_dir / "attention_runtime_tradeoffs_captured.png")
     render_runtime_plotly(summary_frame, plots_dir / "attention_runtime_tradeoffs_captured.html")
-    render_mean_pm_mse_plot(mean_pm_mse_table, plots_dir / "attention_mean_pm_mse_captured.png")
+    render_mean_pm_sd_plot(mean_pm_sd_table, plots_dir / "attention_mean_pm_sd_captured.png")
+
+    if args.write_config:
+        config_out = Path(args.config_out) if args.config_out else output_dir / "turboquant_config.paper.json"
+        payload = build_paper_turboquant_config(
+            bit_grid=bit_grid,
+            dim=int(bundles[0].keys.shape[-1]) if bundles else 128,
+            artifact_refs={
+                "trial_csv": str(trial_path).replace("\\", "/"),
+                "summary_csv": str(summary_path).replace("\\", "/"),
+                "mean_pm_sd_csv": str(mean_pm_sd_path).replace("\\", "/"),
+            },
+        )
+        write_turboquant_config(config_out, payload)
 
     headline = summary_frame.loc[
         summary_frame["metric"].isin(["hidden_cosine_similarity", "logit_cosine_similarity", "memory_ratio_vs_exact"])
     ].copy()
     print(headline)
-    print(mean_pm_mse_table)
+    print(mean_pm_sd_table)
     print(f"saved baseline captured metrics to {metrics_dir}")
     print(f"saved baseline captured plots to {plots_dir}")
     return 0

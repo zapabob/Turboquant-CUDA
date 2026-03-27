@@ -1,0 +1,30 @@
+{
+  "artifact_refs": {
+    "summary_csv": "artifacts/research_extension/metrics_smoke_schema/v_codec_summary_synthetic.csv",
+    "trial_csv": "artifacts/research_extension/metrics_smoke_schema/v_codec_trials_synthetic.csv"
+  },
+  "channel_group_size": 8,
+  "k_codec": {
+    "bits_total": 3,
+    "head_dim": 32,
+    "mse_bits": null,
+    "qjl_bits": 1,
+    "qjl_seed": 1,
+    "rotation_policy": "block_so8_learned",
+    "rotation_seed": 0
+  },
+  "low_rank_rank": 0,
+  "protected_fraction": 0.1,
+  "rotation_policy": "block_so8_learned",
+  "schema_kind": "research_extension",
+  "secondary_fraction": 0.1,
+  "sensitivity_source": "attention-output-sensitivity",
+  "v_codec": {
+    "base_bits": 3,
+    "high_bits": 8,
+    "low_rank_rank": 0,
+    "protected_fraction": 0.1,
+    "secondary_fraction": 0.1
+  },
+  "version": 1
+}

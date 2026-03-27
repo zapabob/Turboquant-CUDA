@@ -12,6 +12,13 @@ from turboquant.paper_baseline import (
     evaluate_paper_attention_grid,
 )
 from turboquant.research_extension import KeyResearchConfig, ValueResearchConfig
+from turboquant.schema import (
+    PAPER_SCHEMA_KIND,
+    RESEARCH_SCHEMA_KIND,
+    build_paper_turboquant_config,
+    build_research_turboquant_config,
+    read_turboquant_config,
+)
 
 
 def test_paper_mixed_bit_policy_uses_explicit_quarter_split() -> None:
@@ -57,3 +64,32 @@ def test_research_config_conversion_keeps_kv_split_fields() -> None:
     assert kv_cfg.key_bits == 4
     assert kv_cfg.value_codec.base_bits == 2
     assert kv_cfg.value_codec.low_rank_rank == 4
+
+
+def test_paper_schema_roundtrip(tmp_path) -> None:
+    payload = build_paper_turboquant_config(bit_grid=[2.0, 2.5, 3.5, 4.0], dim=128)
+    path = tmp_path / "turboquant_config.paper.json"
+    path.write_text(__import__("json").dumps(payload, indent=2), encoding="utf-8")
+    loaded = read_turboquant_config(path, expected_kind=PAPER_SCHEMA_KIND)
+    assert loaded["schema_kind"] == PAPER_SCHEMA_KIND
+    assert loaded["evaluation_grid"]["bit_grid"] == [2.0, 2.5, 3.5, 4.0]
+    assert loaded["mode_configs"]["key_only_random"]["mixed_bit_policy"]["presets"]["2.5"]["high_count"] == 32
+
+
+def test_research_schema_roundtrip_and_cross_load_rejection(tmp_path) -> None:
+    payload = build_research_turboquant_config(
+        key_config=KeyResearchConfig(head_dim=128, bits_total=4),
+        value_config=ValueResearchConfig(base_bits=2, high_bits=8, protected_fraction=0.2, low_rank_rank=4),
+    )
+    path = tmp_path / "turboquant_config.research.json"
+    path.write_text(__import__("json").dumps(payload, indent=2), encoding="utf-8")
+    loaded = read_turboquant_config(path, expected_kind=RESEARCH_SCHEMA_KIND)
+    assert loaded["schema_kind"] == RESEARCH_SCHEMA_KIND
+    assert loaded["k_codec"]["bits_total"] == 4
+    assert loaded["v_codec"]["low_rank_rank"] == 4
+    try:
+        read_turboquant_config(path, expected_kind=PAPER_SCHEMA_KIND)
+    except ValueError as exc:
+        assert "Expected schema kind" in str(exc)
+    else:
+        raise AssertionError("cross-load between paper and research schema should fail")

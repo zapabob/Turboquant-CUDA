@@ -12,7 +12,14 @@ import pandas as pd
 
 from turboquant.analysis import load_captured_runs, summarize_trial_metrics
 from turboquant.io_utils import ensure_dir
-from turboquant.research_extension import V_ABLATION_MODES, captured_v_ablation_rows, synthetic_v_ablation_rows
+from turboquant.research_extension import (
+    KeyResearchConfig,
+    V_ABLATION_MODES,
+    ValueResearchConfig,
+    captured_v_ablation_rows,
+    synthetic_v_ablation_rows,
+)
+from turboquant.schema import build_research_turboquant_config, write_turboquant_config
 
 
 ARTIFACT_ROOT = Path("artifacts") / "research_extension"
@@ -31,6 +38,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-layers", type=int, default=0)
     parser.add_argument("--bits", default="2,2.5,3,3.5,4")
     parser.add_argument("--output-dir", default=str(ARTIFACT_ROOT / "metrics"))
+    parser.add_argument("--write-config", action="store_true")
+    parser.add_argument("--config-out", default=None)
     return parser.parse_args()
 
 
@@ -71,6 +80,17 @@ def main() -> int:
     suffix = args.query_source
     trial_frame.to_csv(output_dir / f"v_codec_trials_{suffix}.csv", index=False)
     summary_frame.to_csv(output_dir / f"v_codec_summary_{suffix}.csv", index=False)
+    if args.write_config:
+        config_out = Path(args.config_out) if args.config_out else output_dir / "turboquant_config.research.json"
+        payload = build_research_turboquant_config(
+            key_config=KeyResearchConfig(head_dim=args.head_dim),
+            value_config=ValueResearchConfig(),
+            artifact_refs={
+                "trial_csv": str((output_dir / f"v_codec_trials_{suffix}.csv")).replace("\\", "/"),
+                "summary_csv": str((output_dir / f"v_codec_summary_{suffix}.csv")).replace("\\", "/"),
+            },
+        )
+        write_turboquant_config(config_out, payload)
     print(summary_frame)
     return 0
 
