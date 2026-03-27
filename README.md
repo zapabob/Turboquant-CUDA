@@ -1,35 +1,39 @@
-﻿# Turboquant-CUDA
+# Turboquant-CUDA
 
-PyTorch-first TurboQuant paper reproduction plus K/V-separated research
-extensions, with Qwen3.5-9B captured replay kept as a secondary adapter layer.
+PyTorch-first TurboQuant paper reproduction, Qwen3.5-9B captured replay, and K/V-separated research extensions.  
+PyTorch を正系にした TurboQuant 論文再現、Qwen3.5-9B captured replay、そして K/V 分離の研究拡張をまとめたリポジトリです。
 
-This repository now has three explicit layers:
+## Overview / 概要
 
-- `turboquant.paper_baseline`: paper-faithful PyTorch-only Stage 1 / Stage 2
-- `turboquant.research_extension`: K/V-separated research codecs and ablations
-- `turboquant.adapters.hf_qwen`: optional Hugging Face / Qwen capture + replay
+This repository is organized into three layers.  
+このリポジトリは 3 層構成です。
 
-The main implementation work is no longer defined by Hugging Face runtime
-integration. The first-class goal is a PyTorch-only baseline that reproduces the
-paper's quantization math before any runtime-specific integration.
+- `turboquant.paper_baseline`
+  Paper-faithful Stage 1 / Stage 2 in PyTorch only.  
+  論文忠実な Stage 1 / Stage 2 の PyTorch 実装です。
+- `turboquant.research_extension`
+  K/V-separated codecs, V sensitivity analysis, and protected-V research branches.  
+  K/V 分離 codec、V 感度解析、protected-V 系の研究実装です。
+- `turboquant.adapters.hf_qwen`
+  Optional Hugging Face / Qwen capture and replay adapter.  
+  任意の Hugging Face / Qwen capture / replay adapter です。
 
-This repo now treats TurboQuant config as dual-schema output:
+The baseline acceptance target is PyTorch-only reproduction, not runtime integration.  
+基準となる合格条件は runtime 統合ではなく、PyTorch-only の論文再現です。
 
-- `turboquant_config.paper.json`: paper-faithful HF/Qwen baseline
-- `turboquant_config.research.json`: K/V-separated research and future Hypura/GGUF sidecar
+## Dual Schema / デュアルスキーマ
 
-Licensed under the MIT License. See `LICENSE`.
+This repo emits two config families.  
+このリポジトリは 2 系統の config を出力します。
 
-## Focus
+- `turboquant_config.paper.json`
+  Paper-faithful baseline for HF/Qwen replay.  
+  HF/Qwen replay 用の論文忠実 baseline です。
+- `turboquant_config.research.json`
+  Research / future Hypura-GGUF sidecar schema.  
+  研究用、および将来の Hypura / GGUF sidecar 用 schema です。
 
-- Paper-faithful `TurboQuantMSE` and `TurboQuantProd` in PyTorch
-- Explicit norm handling for the unit-sphere baseline
-- Research split between `K = score problem` and `V = state transport problem`
-- Offline-first validation before runtime integration
-- Qwen capture / replay retained as a secondary adapter validation path
-- Reproducible CSV, Markdown, Matplotlib, and Plotly artifacts
-
-## Quick Start
+## Quick Start / クイックスタート
 
 ```powershell
 uv python install 3.12.9
@@ -43,7 +47,8 @@ uv run python scripts\research_validate_v_codecs.py --query-source synthetic --t
 uv run python scripts\research_value_sensitivity.py --trials 3 --synthetic-layers 4
 ```
 
-To use the Qwen adapter path as well:
+To enable the Qwen adapter as well:  
+Qwen adapter も使う場合は次です。
 
 ```powershell
 uv sync --extra cu128 --extra dev --extra hf_qwen
@@ -52,65 +57,65 @@ uv run python scripts\paper_validate_captured_qwen.py --kv-dir artifacts\kv --bi
 uv run python scripts\research_validate_v_codecs.py --query-source captured --kv-dir artifacts\kv --trials 1 --max-layers 1 --bits 2,2.5,3.5,4 --write-config
 ```
 
-## Main Entry Points
+## Main Entry Points / 主なエントリポイント
 
-### Paper Baseline
+### Paper Baseline / 論文忠実 baseline
 
 - `scripts\paper_validate_synthetic.py`
 - `scripts\paper_validate_attention.py`
 - `scripts\paper_validate_captured_qwen.py`
 
-### Research Extension
+### Research Extension / 研究拡張
 
 - `scripts\research_validate_v_codecs.py`
 - `scripts\research_value_sensitivity.py`
 
-### HF/Qwen Adapter
+### HF/Qwen Adapter / HF・Qwen adapter
 
 - `scripts\capture_qwen_kv.py`
 - `scripts\validate_attention_scores.py`
 - `scripts\export_report.py`
-
 - `scripts\env_check.py`
 - `scripts\benchmark_encode_decode.py`
 
-## PyTorch-First Design
+## Design Position / 設計上の立場
 
-- `paper_baseline` is the canonical implementation target.
-- `research_extension` is where K/V objective splitting lives.
-- `adapters.hf_qwen` is intentionally optional and secondary.
-- `bitsandbytes`, `transformers`, `llama.cpp`, and `Unsloth` are not part of the
-  paper baseline acceptance criteria.
+`paper_baseline` is the canonical implementation target.  
+`paper_baseline` を正系の実装対象とします。
 
-## Current Report
+`research_extension` is where we test the hypothesis that `K` and `V` should not share the same codec family.  
+`research_extension` では、`K` と `V` は同じ codec family を共有すべきではない、という仮説を検証します。
 
-The current combined report still reflects the older integrated harness. The new
-PyTorch-first split makes the interpretation explicit:
+`adapters.hf_qwen` is secondary validation only.  
+`adapters.hf_qwen` は二次的な検証レイヤーです。
 
-- `paper_baseline` answers whether Stage 1 / Stage 2 are reproduced faithfully.
-- `research_extension` answers whether `K` and `V` should share one codec family.
-- `adapters.hf_qwen` is used only after the PyTorch baseline is already stable.
+`bitsandbytes`, `transformers`, `llama.cpp`, and `Unsloth` are not part of the paper-baseline acceptance criteria.  
+`bitsandbytes`、`transformers`、`llama.cpp`、`Unsloth` は論文 baseline の合格条件には含めません。
 
-The current mathematical bottleneck remains the value path: `full_kv` saves
-more memory, but hidden-state drift is consistently larger than the stronger
-key-only baselines.
+## Current Baseline Result / 現在の baseline 結果
 
-### Paper Baseline Qwen3.5-9B Captured Replay
+The current mathematical bottleneck is the value path.  
+現在の数理的ボトルネックは value path です。
 
-The paper-baseline-only Qwen replay now has its own extracted artifact set under
-`artifacts/paper_baseline/qwen_captured_reported/`. This section uses only the
-paper modes:
+Paper-faithful `full_kv` reduces KV cache much more aggressively than `key_only_random`, but hidden-state drift and attention-output transport error are consistently worse.  
+論文忠実な `full_kv` は `key_only_random` より KV cache を強く削減しますが、hidden-state drift と attention-output transport error は一貫して悪化します。
+
+### Paper Baseline Qwen3.5-9B Captured Replay / Qwen3.5-9B captured replay
+
+This extracted artifact set uses only the paper modes.  
+この抽出 artifact は論文 baseline の mode だけを使っています。
 
 - `exact`
 - `key_only_random`
 - `full_kv`
 
-Mixed-bit points `2.5` and `3.5` follow the paper policy:
+Mixed-bit points `2.5` and `3.5` follow the paper policy.  
+mixed-bit の `2.5` と `3.5` は論文ポリシーに従います。
 
 - `2.5 bit = 32 channels @ 3 bit + 96 channels @ 2 bit`
 - `3.5 bit = 32 channels @ 4 bit + 96 channels @ 3 bit`
 
-Generated files:
+Canonical artifacts / 正式な artifact:
 
 - `artifacts/paper_baseline/qwen_captured_reported/metrics/attention_summary_captured.csv`
 - `artifacts/paper_baseline/qwen_captured_reported/metrics/attention_summary_captured.md`
@@ -124,13 +129,11 @@ Generated files:
 - `artifacts/paper_baseline/qwen_captured_reported/metrics/attention_statistics_pairwise.md`
 - `artifacts/paper_baseline/qwen_captured_reported/turboquant_config.paper.json`
 - `artifacts/paper_baseline/qwen_captured_reported/plots/attention_tradeoffs_captured.png`
-- `artifacts/paper_baseline/qwen_captured_reported/plots/attention_tradeoffs_captured.html`
 - `artifacts/paper_baseline/qwen_captured_reported/plots/attention_runtime_tradeoffs_captured.png`
-- `artifacts/paper_baseline/qwen_captured_reported/plots/attention_runtime_tradeoffs_captured.html`
 - `artifacts/paper_baseline/qwen_captured_reported/plots/attention_mean_pm_sd_captured.png`
 - `artifacts/paper_baseline/qwen_captured_reported/plots/attention_v_breakage_by_bit_sd.png`
 
-Representative captured values:
+Representative captured values / 代表値:
 
 | Mode | Bits | Logit Cosine | Hidden Cosine | Memory / Exact |
 | --- | ---: | ---: | ---: | ---: |
@@ -139,7 +142,7 @@ Representative captured values:
 | full-KV | 2.0 | 0.997070 | 0.940430 | 0.130859 |
 | full-KV | 4.0 | 0.998047 | 0.995117 | 0.255859 |
 
-Mean +/- SD summary from the raw replay aggregation:
+Mean +/- SD summary from raw replay aggregation / raw replay 集計に基づく mean +/- SD:
 
 | Mode | Bits | Logit Cosine (mean +/- SD) | Hidden Cosine (mean +/- SD) | Memory Ratio (mean +/- SD) |
 | --- | ---: | --- | --- | --- |
@@ -154,9 +157,7 @@ Mean +/- SD summary from the raw replay aggregation:
 | full-KV | 3.5 | 0.999023 +/- 0.001953 | 0.988281 +/- 0.003189 | 0.208984 +/- 0.000000 |
 | full-KV | 4.0 | 0.998047 +/- 0.003906 | 0.995117 +/- 0.001953 | 0.255859 +/- 0.000000 |
 
-Note: the error bars in this section use replay-sample standard deviation across the captured prompt panel.
-
-KV cache / memory usage by bit:
+KV cache / memory usage by bit / bit ごとの KV cache・メモリ使用量:
 
 | Bits | key-only random memory ratio | full-KV memory ratio | full-KV memory bits (mean +/- SD) |
 | --- | --- | --- | --- |
@@ -166,29 +167,23 @@ KV cache / memory usage by bit:
 | 3.5 | 0.605469 +/- 0.000000 | 0.208984 +/- 0.000000 | 124976.0 +/- 35528.3 |
 | 4.0 | 0.628906 +/- 0.000000 | 0.255859 +/- 0.000000 | 153008.0 +/- 43497.3 |
 
-The practical trade-off is consistent across all bits: paper-faithful `full_kv`
-shrinks the KV cache much more aggressively than `key_only_random`, but that
-extra V compression shows up mainly in hidden-state and attention-output
-transport rather than in logit cosine.
+The practical trade-off is consistent across all bits: `full_kv` saves much more KV cache, but the additional V compression mainly appears as hidden-state degradation and transport error, not as a large logit-cosine drop.  
+実務上のトレードオフは全 bit で一貫しています。`full_kv` は KV cache を大きく削減しますが、その追加の V 圧縮は主に hidden-state 劣化と transport error として現れ、logit cosine の大きな低下としては現れません。
 
-Error-bar figures:
+Figures / 図:
 
-![Paper baseline trade-offs](artifacts/paper_baseline/qwen_captured_reported/plots/attention_tradeoffs_captured.png)
+![Paper baseline trade-offs](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\artifacts\paper_baseline\qwen_captured_reported\plots\attention_tradeoffs_captured.png)
 
-![Paper baseline mean +/- SD](artifacts/paper_baseline/qwen_captured_reported/plots/attention_mean_pm_sd_captured.png)
+![Paper baseline mean plus SD](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\artifacts\paper_baseline\qwen_captured_reported\plots\attention_mean_pm_sd_captured.png)
 
-![V breakage by bit](artifacts/paper_baseline/qwen_captured_reported/plots/attention_v_breakage_by_bit_sd.png)
+![V breakage by bit](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\artifacts\paper_baseline\qwen_captured_reported\plots\attention_v_breakage_by_bit_sd.png)
 
-### Statistical Treatment
+### Statistical Treatment / 統計処理
 
-For the statistical summary, the README uses the raw replay samples in
-`attention_trials_captured.csv` with `n = 4` per `(mode, bit)` group. Following
-the requested framing, we interpret `full_kv` as the "V is broken" condition,
-but the reported p-values are still computed against the conventional
-no-difference null.
+The statistical summary uses `attention_trials_captured.csv` with `n = 4` per `(mode, bit)` group.  
+統計処理は `attention_trials_captured.csv` を使い、各 `(mode, bit)` 群で `n = 4` です。
 
-Omnibus multi-group comparison across the 10 quantized groups
-(`key_only_random/full_kv × {2, 2.5, 3, 3.5, 4}`):
+Omnibus multi-group comparison across the 10 quantized groups / 10 群の多群比較:
 
 | Metric | Test | Statistic | p-value |
 | --- | --- | ---: | ---: |
@@ -196,12 +191,10 @@ Omnibus multi-group comparison across the 10 quantized groups
 | attention output relative error | Kruskal-Wallis | 37.5473 | 2.10e-05 |
 | logit cosine similarity | Kruskal-Wallis | 17.2946 | 4.43e-02 |
 
-This gives a clean separation between the "V-sensitive" metrics and the score
-metric: hidden cosine and attention-output error vary strongly across groups,
-while logit cosine moves much less.
+This cleanly separates the V-sensitive metrics from the score metric.  
+これにより、V に敏感な指標と score 系の指標がきれいに分かれます。
 
-Bit-wise one-sided exact Mann-Whitney comparisons (`key_only_random` versus
-`full_kv`):
+Bit-wise one-sided exact Mann-Whitney comparisons / bit ごとの exact Mann-Whitney:
 
 | Bits | Hidden delta (`key_only - full_kv`) | Hidden p | Attention error delta (`key_only - full_kv`) | Attention error p | Logit delta | Logit p |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -211,29 +204,54 @@ Bit-wise one-sided exact Mann-Whitney comparisons (`key_only_random` versus
 | 3.5 | 0.010742 | 0.0143 | -0.136307 | 0.0143 | 0.000000 | 1.0000 |
 | 4.0 | 0.003906 | 0.0571 | -0.087006 | 0.0143 | 0.000000 | 1.0000 |
 
-Interpretation:
+Interpretation / 解釈:
 
-- The observed direction matches the requested H0 framing at every bit:
-  `full_kv` always lowers hidden cosine and always increases
-  `attention_output_relative_error` relative to `key_only_random`.
-- Under the conventional null, hidden cosine differences are already visible at
-  2.0 to 3.5 bit with raw exact p-values of `0.0143`, and the 4-bit gap is
-  still in the same direction but smaller.
-- Attention-output error is the clearest signal: every bit setting shows the
-  same directional split, and the effect size remains large even at 4 bit.
-- Logit cosine does not separate the two modes in this baseline. That is
-  exactly the failure mode we care about here: the score path looks stable while
-  the value transport path is degraded.
+- `full_kv` always lowers hidden cosine relative to `key_only_random`.  
+  `full_kv` は常に `key_only_random` より hidden cosine を下げます。
+- `full_kv` always increases attention-output relative error.  
+  `full_kv` は常に attention-output relative error を上げます。
+- `logit_cosine_similarity` does not separate the two modes in this baseline.  
+  この baseline では `logit_cosine_similarity` は両 mode をほとんど分離しません。
+- The failure mode is therefore value-path transport, not the score path.  
+  したがって、壊れている本体は score path ではなく value-path transport です。
 
-Because `n = 4` per group, Holm-corrected exact pairwise tests are conservative
-and do not cross `0.05`; the omnibus Kruskal results and the consistent
-directional deltas are therefore the more informative summary.
+Because `n = 4` per group, Holm-corrected exact pairwise tests are conservative. The omnibus Kruskal results plus the consistent directional deltas are the more informative summary.  
+各群 `n = 4` と小さいため、Holm 補正済みの exact pairwise test はかなり保守的です。そのため、Kruskal の omnibus 結果と一貫した差の向きのほうが情報量が高いと解釈しています。
 
-Paper baseline conclusion:
+### Audit: Google Blog vs Paper vs Qwen3.5-9B / 監査: Google ブログ vs 論文 vs Qwen3.5-9B
 
-- `paper baseline result: key_only_random preserves hidden geometry better than full_kv on Qwen3.5-9B captured replay`
-- mixed-bit `2.5 / 3.5` are intermediate Pareto points between low integer bits and higher integer bits
-- statistically, the captured replay supports the same qualitative conclusion:
-  TurboQuant reduces KV cache size as intended, but the paper-faithful
-  `full_kv` path damages the V-dependent token-output transport signal before it
-  meaningfully damages the logit score signal
+We also provide a three-column audit table that compares the public Google blog messaging, the actual scope of the paper, and our Qwen3.5-9B captured replay.  
+Google の広報ブログ、論文が実際に保証している範囲、そして Qwen3.5-9B の captured replay 実測を 3 列で並べた監査表も用意しています。
+
+Audit artifacts / 監査 artifact:
+
+- `artifacts/paper_baseline/google_blog_audit/metrics/google_blog_paper_qwen_audit.csv`
+- `artifacts/paper_baseline/google_blog_audit/metrics/google_blog_paper_qwen_audit.md`
+- `artifacts/paper_baseline/google_blog_audit/metrics/qwen_summary_stats.csv`
+- `artifacts/paper_baseline/google_blog_audit/metrics/qwen_summary_stats.md`
+- `artifacts/paper_baseline/google_blog_audit/plots/google_blog_paper_qwen_audit.png`
+
+Audit conclusion / 監査の結論:
+
+- The Google blog is directionally correct about KV-cache reduction.  
+  Google ブログは KV cache 削減については方向として正しいです。
+- It is too broad if read as "no accuracy loss in general runtimes."  
+  ただし「一般的な runtime でも性能劣化なし」と読むと広すぎます。
+- On Qwen3.5-9B captured replay, `full_kv` preserves score-like metrics much better than it preserves value transport.  
+  Qwen3.5-9B captured replay では、`full_kv` は score 系指標の保持に比べて value transport の保持がかなり弱いです。
+
+![Google blog audit plot](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\artifacts\paper_baseline\google_blog_audit\plots\google_blog_paper_qwen_audit.png)
+
+## Final Takeaway / 最終結論
+
+Paper baseline conclusion: `key_only_random` preserves hidden geometry better than `full_kv` on Qwen3.5-9B captured replay.  
+論文 baseline の結論: Qwen3.5-9B captured replay では `key_only_random` のほうが `full_kv` より hidden geometry を保ちます。
+
+Mixed-bit `2.5 / 3.5` remain useful intermediate Pareto points.  
+mixed-bit の `2.5 / 3.5` は中間 Pareto 点として依然有用です。
+
+The statistical evidence and the audit table both support the same qualitative claim: TurboQuant reduces KV cache size as intended, but the paper-faithful `full_kv` path damages the V-dependent token-output transport signal before it meaningfully damages the logit score signal.  
+統計処理と監査表の両方が、同じ質的結論を支持しています。つまり、TurboQuant は意図どおり KV cache を削減しますが、論文忠実な `full_kv` 経路は、logit の score 信号を大きく壊す前に、V 依存の token-output transport 信号を壊します。
+
+Licensed under the MIT License. See `LICENSE`.  
+ライセンスは MIT License です。`LICENSE` を参照してください。

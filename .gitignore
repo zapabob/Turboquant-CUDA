@@ -6,5 +6,9 @@ __pycache__/
 .cache/
 .codex/
 artifacts/kv/
+artifacts/kv_rtx3060_fresh/
 artifacts/metrics_smoke/
 artifacts/metrics_smoke_captured/
+artifacts/paper_baseline/qwen_captured_smoke_schema/
+artifacts/research_extension/metrics_smoke_schema/v_codec_summary_synthetic.csv
+artifacts/research_extension/metrics_smoke_schema/v_codec_trials_synthetic.csv
