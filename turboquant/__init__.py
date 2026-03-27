@@ -1,8 +1,10 @@
 """TurboQuant research prototype for Qwen3.5-9B KV-cache experiments."""
 
+from turboquant.analysis import summarize_layer_thresholds, summarize_trial_metrics
 from turboquant.allocation import ChannelBitAllocation
 from turboquant.hf_cache import CacheBackend, ExactCacheBackend, TurboQuantCacheBackend
 from turboquant.kv_codec import KVCodec, KVCodecConfig
+from turboquant.reporting import summarize_metric_trials
 from turboquant.turboquant_mse import TurboQuantMSE
 from turboquant.turboquant_prod import TurboQuantProd
 from turboquant.types import TurboQuantMSEConfig, TurboQuantProdConfig
@@ -13,6 +15,9 @@ __all__ = [
     "ExactCacheBackend",
     "KVCodec",
     "KVCodecConfig",
+    "summarize_layer_thresholds",
+    "summarize_metric_trials",
+    "summarize_trial_metrics",
     "TurboQuantMSE",
     "TurboQuantMSEConfig",
     "TurboQuantProd",

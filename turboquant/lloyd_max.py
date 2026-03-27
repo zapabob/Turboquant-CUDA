@@ -65,3 +65,17 @@ def fit_lloyd_max_codebook(dim: int, bits: int, grid_size: int = 16385) -> tuple
 def codebook_tensor(dim: int, bits: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     levels = fit_lloyd_max_codebook(dim=dim, bits=bits)
     return torch.tensor(levels, device=device, dtype=dtype)
+
+
+def decision_boundaries_tensor(
+    dim: int,
+    bits: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    codebook = codebook_tensor(dim=dim, bits=bits, device=device, dtype=dtype)
+    boundaries = torch.empty((codebook.numel() + 1,), device=device, dtype=dtype)
+    boundaries[0] = -1.0
+    boundaries[-1] = 1.0
+    boundaries[1:-1] = (codebook[:-1] + codebook[1:]) * 0.5
+    return boundaries

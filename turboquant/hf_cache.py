@@ -54,22 +54,29 @@ class ExactCacheBackend(CacheBackend):
 class TurboQuantCacheBackend(CacheBackend):
     """Cache backend using `KVCodec` for keys and values."""
 
-    def __init__(self, codec: KVCodec) -> None:
+    def __init__(self, codec: KVCodec, *, quantize_values: bool = False) -> None:
         self.codec = codec
+        self.quantize_values = quantize_values
         self.encoded_keys: dict[int, list[QuantizedProdBatch]] = {}
         self.encoded_values: dict[int, list[QuantizedMSEBatch]] = {}
+        self.raw_values: dict[int, list[torch.Tensor]] = {}
 
     def append(self, layer_idx: int, k_t: torch.Tensor, v_t: torch.Tensor) -> None:
         self.encoded_keys.setdefault(layer_idx, []).append(self.codec.encode_keys(k_t))
-        self.encoded_values.setdefault(layer_idx, []).append(self.codec.encode_values(v_t))
+        if self.quantize_values:
+            self.encoded_values.setdefault(layer_idx, []).append(self.codec.encode_values(v_t))
+        else:
+            self.raw_values.setdefault(layer_idx, []).append(v_t.detach())
 
     def get_keys(self, layer_idx: int) -> torch.Tensor:
         decoded = [self.codec.decode_keys(item) for item in self.encoded_keys.get(layer_idx, [])]
         return torch.cat(decoded, dim=-2)
 
     def get_values(self, layer_idx: int) -> torch.Tensor:
-        decoded = [self.codec.decode_values(item) for item in self.encoded_values.get(layer_idx, [])]
-        return torch.cat(decoded, dim=-2)
+        if self.quantize_values:
+            decoded = [self.codec.decode_values(item) for item in self.encoded_values.get(layer_idx, [])]
+            return torch.cat(decoded, dim=-2)
+        return torch.cat(self.raw_values.get(layer_idx, []), dim=-2)
 
     def estimate_scores(self, layer_idx: int, q_t: torch.Tensor) -> torch.Tensor:
         chunks = [

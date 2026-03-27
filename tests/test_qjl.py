@@ -16,3 +16,10 @@ def test_qjl_estimator_is_approximately_unbiased() -> None:
     estimate = sketch.estimate(y, encoded)
     exact = (residual * y).sum(dim=-1)
     assert abs((estimate - exact).mean().item()) < 0.1
+
+
+def test_qjl_default_dim_is_paper_faithful() -> None:
+    from turboquant.types import TurboQuantProdConfig
+
+    cfg = TurboQuantProdConfig(dim=64, total_bits=4)
+    assert cfg.resolved_qjl_dim() == 64

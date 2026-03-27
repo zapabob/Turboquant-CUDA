@@ -1,4 +1,4 @@
-"""Attention score metrics used by offline validation."""
+"""Attention score and hidden-state metrics used by offline validation."""
 
 from __future__ import annotations
 
@@ -28,6 +28,13 @@ def topk_match_rate(reference: torch.Tensor, estimate: torch.Tensor, k: int) -> 
     return float(matches.to(torch.float32).mean().item())
 
 
+def topk_overlap_rate(reference: torch.Tensor, estimate: torch.Tensor, k: int) -> float:
+    ref_top = reference.topk(k, dim=-1).indices
+    est_top = estimate.topk(k, dim=-1).indices
+    overlap = (ref_top.unsqueeze(-1) == est_top.unsqueeze(-2)).any(dim=-1).to(torch.float32)
+    return float((overlap.mean(dim=-1)).mean().item())
+
+
 def summarize_attention_scores(reference: torch.Tensor, estimate: torch.Tensor) -> dict[str, float]:
     diff = estimate - reference
     return {
@@ -36,6 +43,7 @@ def summarize_attention_scores(reference: torch.Tensor, estimate: torch.Tensor) 
         "mse": float(diff.square().mean().item()),
         "spearman": float(spearman_rank_correlation(reference, estimate).item()),
         "top1_match": topk_match_rate(reference, estimate, k=1),
+        "top5_overlap": topk_overlap_rate(reference, estimate, k=min(5, reference.shape[-1])),
         "top5_match": topk_match_rate(reference, estimate, k=min(5, reference.shape[-1])),
     }
 

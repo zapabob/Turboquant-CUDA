@@ -33,6 +33,7 @@ class GaussianSignSketch:
         self.seed = seed
         self.device = torch.device(device)
         self.dtype = getattr(torch, dtype)
+        # Paper-faithful default: one Gaussian sketch row per input coordinate.
         self.matrix = _gaussian_matrix_cpu(dim=dim, sketch_dim=sketch_dim, seed=seed).to(
             device=self.device,
             dtype=self.dtype,
@@ -41,9 +42,13 @@ class GaussianSignSketch:
     def encode(self, residual: torch.Tensor) -> QJLSketch:
         if residual.shape[-1] != self.dim:
             raise ValueError(f"Expected last dimension {self.dim}, got {residual.shape[-1]}")
+        if residual.device != self.device:
+            raise ValueError(f"Expected residual on {self.device}, got {residual.device}")
+        if residual.dtype != self.dtype:
+            raise ValueError(f"Expected residual dtype {self.dtype}, got {residual.dtype}")
         norms = torch.linalg.vector_norm(residual, dim=-1, keepdim=True)
         safe_norms = torch.clamp(norms, min=torch.finfo(residual.dtype).eps)
-        unit = residual / safe_norms
+        unit = torch.where(norms > 0, residual / safe_norms, torch.zeros_like(residual))
         projections = torch.matmul(unit, self.matrix.transpose(0, 1))
         signs = (projections >= 0).to(torch.int8)
         return QJLSketch(
@@ -57,6 +62,10 @@ class GaussianSignSketch:
     def estimate(self, y: torch.Tensor, sketch: QJLSketch) -> torch.Tensor:
         if y.shape[-1] != self.dim:
             raise ValueError(f"Expected last dimension {self.dim}, got {y.shape[-1]}")
+        if y.device != self.device:
+            raise ValueError(f"Expected y on {self.device}, got {y.device}")
+        if y.dtype != self.dtype:
+            raise ValueError(f"Expected y dtype {self.dtype}, got {y.dtype}")
         proj_y = torch.matmul(y, self.matrix.transpose(0, 1))
         signs_pm = sketch.signs.to(dtype=proj_y.dtype).mul(2.0).sub(1.0)
         estimate = math.sqrt(math.pi / 2.0) * sketch.norms.squeeze(-1) * (
@@ -69,6 +78,10 @@ class GaussianSignSketch:
 
         if q.shape[-1] != self.dim:
             raise ValueError(f"Expected last dimension {self.dim}, got {q.shape[-1]}")
+        if q.device != self.device:
+            raise ValueError(f"Expected q on {self.device}, got {q.device}")
+        if q.dtype != self.dtype:
+            raise ValueError(f"Expected q dtype {self.dtype}, got {q.dtype}")
         proj_q = torch.matmul(q, self.matrix.transpose(0, 1))
         signs_pm = sketch.signs.to(dtype=proj_q.dtype).mul(2.0).sub(1.0)
         correction = torch.einsum("...sm,...qm->...qs", signs_pm, proj_q) / self.sketch_dim

@@ -18,6 +18,8 @@ class ChannelBitAllocation:
 
     @classmethod
     def preset(cls, effective_bits: float, width: int) -> "ChannelBitAllocation":
+        if effective_bits == 1.5:
+            return cls.from_ratio(regular_bits=1, outlier_bits=2, width=width, outlier_ratio=0.25)
         if effective_bits == 2.5:
             return cls.from_ratio(regular_bits=2, outlier_bits=3, width=width, outlier_ratio=0.25)
         if effective_bits == 3.5:
@@ -40,6 +42,15 @@ class ChannelBitAllocation:
             outlier_count=outlier_count,
         )
 
+    def outlier_ratio(self, width: int | None = None) -> float:
+        if width is None:
+            raise ValueError("width is required to compute the effective outlier ratio")
+        return float(self.outlier_count) / float(width)
+
+    def effective_bits(self, width: int) -> float:
+        ratio = self.outlier_ratio(width)
+        return (self.regular_bits * (1.0 - ratio)) + (self.outlier_bits * ratio)
+
     def make_bitwidths(self, values: torch.Tensor) -> torch.Tensor:
         """Select outlier coordinates along the last dimension.
 
@@ -54,6 +65,8 @@ class ChannelBitAllocation:
         bitwidths = torch.full_like(values, fill_value=self.regular_bits, dtype=torch.uint8)
         if self.outlier_count == 0:
             return bitwidths
+        if self.selection_policy != "magnitude-topk":
+            raise ValueError(f"Unsupported selection_policy={self.selection_policy!r}")
         _, indices = torch.topk(values.abs(), k=self.outlier_count, dim=-1)
         bitwidths.scatter_(-1, indices, self.outlier_bits)
         return bitwidths
