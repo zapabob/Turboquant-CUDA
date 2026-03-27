@@ -122,6 +122,9 @@ def build_research_turboquant_config(
             "rotation_seed": key_config.rotation_seed,
             "qjl_seed": key_config.qjl_seed,
             "head_dim": key_config.head_dim,
+            "view_mode": key_config.view_mode,
+            "view_selection": key_config.view_selection,
+            "views": list(key_config.views),
         },
         "v_codec": {
             "base_bits": value_config.base_bits,
@@ -136,6 +139,9 @@ def build_research_turboquant_config(
         "secondary_fraction": value_config.secondary_fraction,
         "low_rank_rank": value_config.low_rank_rank,
         "rotation_policy": key_config.rotation_policy,
+        "view_mode": key_config.view_mode,
+        "view_selection": key_config.view_selection,
+        "views": list(key_config.views),
         "artifact_refs": artifact_refs or {},
     }
     validate_research_turboquant_config(payload)
@@ -169,12 +175,32 @@ def validate_research_turboquant_config(payload: dict[str, Any]) -> None:
             "secondary_fraction",
             "low_rank_rank",
             "rotation_policy",
+            "view_mode",
+            "view_selection",
+            "views",
             "artifact_refs",
         ),
         context="research config",
     )
     if payload["schema_kind"] != RESEARCH_SCHEMA_KIND:
         raise ValueError(f"Expected schema_kind={RESEARCH_SCHEMA_KIND!r}, got {payload['schema_kind']!r}")
+    k_codec = payload["k_codec"]
+    _require(
+        k_codec,
+        (
+            "bits_total",
+            "mse_bits",
+            "qjl_bits",
+            "rotation_policy",
+            "rotation_seed",
+            "qjl_seed",
+            "head_dim",
+            "view_mode",
+            "view_selection",
+            "views",
+        ),
+        context="research k_codec",
+    )
 
 
 def read_turboquant_config(path: Path, *, expected_kind: str | None = None) -> dict[str, Any]:

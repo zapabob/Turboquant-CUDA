@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from turboquant.kv_codec import KVCodecConfig
 from turboquant.types import SensitivitySpec, ValueCodecConfig
+
+ResearchViewMode = Literal["single", "triality_proxy"]
+ResearchViewSelection = Literal["report_all", "best_per_layer"]
 
 
 @dataclass(slots=True)
@@ -21,6 +25,9 @@ class KeyResearchConfig:
     qjl_seed: int = 1
     device: str = "cpu"
     dtype: str = "float32"
+    view_mode: ResearchViewMode = "triality_proxy"
+    view_selection: ResearchViewSelection = "report_all"
+    views: tuple[str, ...] = ("vector", "spinor_plus_proxy", "spinor_minus_proxy")
 
     def to_kv_codec_config(self, value_codec: ValueCodecConfig | None = None) -> KVCodecConfig:
         return KVCodecConfig(
@@ -65,4 +72,4 @@ class ValueResearchConfig:
         )
 
 
-__all__ = ["KeyResearchConfig", "ValueResearchConfig"]
+__all__ = ["KeyResearchConfig", "ResearchViewMode", "ResearchViewSelection", "ValueResearchConfig"]

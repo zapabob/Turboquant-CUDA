@@ -1,0 +1,47 @@
+{
+  "artifact_refs": {
+    "mean_pm_sd_csv": "artifacts/research_extension/triality_k_only_cpu_eval_debug2/metrics/triality_summary_mean_pm_sd.csv",
+    "rotation_dir": "artifacts/research_extension/triality_k_only_cuda_full/rotations",
+    "statistics_csv": "artifacts/research_extension/triality_k_only_cpu_eval_debug2/metrics/triality_statistics.csv",
+    "summary_csv": "artifacts/research_extension/triality_k_only_cpu_eval_debug2/metrics/triality_summary_captured.csv",
+    "trial_csv": "artifacts/research_extension/triality_k_only_cpu_eval_debug2/metrics/triality_trials_captured.csv"
+  },
+  "channel_group_size": 8,
+  "k_codec": {
+    "bits_total": 3,
+    "head_dim": 128,
+    "mse_bits": null,
+    "qjl_bits": 1,
+    "qjl_seed": 1,
+    "rotation_policy": "block_so8_learned",
+    "rotation_seed": 0,
+    "view_mode": "triality_proxy",
+    "view_selection": "report_all",
+    "views": [
+      "vector",
+      "spinor_plus_proxy",
+      "spinor_minus_proxy"
+    ]
+  },
+  "low_rank_rank": 0,
+  "protected_fraction": 0.1,
+  "rotation_policy": "block_so8_learned",
+  "schema_kind": "research_extension",
+  "secondary_fraction": 0.1,
+  "sensitivity_source": "attention-output-sensitivity",
+  "v_codec": {
+    "base_bits": 3,
+    "high_bits": 8,
+    "low_rank_rank": 0,
+    "protected_fraction": 0.1,
+    "secondary_fraction": 0.1
+  },
+  "version": 1,
+  "view_mode": "triality_proxy",
+  "view_selection": "report_all",
+  "views": [
+    "vector",
+    "spinor_plus_proxy",
+    "spinor_minus_proxy"
+  ]
+}

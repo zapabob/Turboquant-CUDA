@@ -87,6 +87,9 @@ def test_research_schema_roundtrip_and_cross_load_rejection(tmp_path) -> None:
     assert loaded["schema_kind"] == RESEARCH_SCHEMA_KIND
     assert loaded["k_codec"]["bits_total"] == 4
     assert loaded["v_codec"]["low_rank_rank"] == 4
+    assert loaded["k_codec"]["view_mode"] == "triality_proxy"
+    assert loaded["k_codec"]["views"] == ["vector", "spinor_plus_proxy", "spinor_minus_proxy"]
+    assert loaded["view_selection"] == "report_all"
     try:
         read_turboquant_config(path, expected_kind=PAPER_SCHEMA_KIND)
     except ValueError as exc:

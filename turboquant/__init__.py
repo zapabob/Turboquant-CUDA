@@ -16,6 +16,9 @@ from turboquant.reporting import summarize_metric_trials
 from turboquant.research_extension import (
     KeyResearchConfig,
     ProtectedValueCodec,
+    TRIALITY_PROXY_VIEWS,
+    TrialityProxyMSE,
+    TrialityProxyProd,
     V_ABLATION_MODES,
     ValueResearchConfig,
 )
@@ -46,6 +49,9 @@ __all__ = [
     "PaperTurboQuantMSE",
     "PaperTurboQuantProd",
     "ProtectedValueCodec",
+    "TRIALITY_PROXY_VIEWS",
+    "TrialityProxyMSE",
+    "TrialityProxyProd",
     "RESEARCH_SCHEMA_KIND",
     "V_ABLATION_MODES",
     "ValueResearchConfig",

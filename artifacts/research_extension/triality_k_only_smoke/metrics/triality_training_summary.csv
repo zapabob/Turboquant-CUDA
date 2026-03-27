@@ -1,0 +1,4 @@
+layer,bits,bit_setting,view,mode,rotation_seed,qjl_seed,prompt_count,token_count,orthogonality_error,train_logit_cosine_similarity,train_logit_mse
+0,2.0,2,vector,key_only_block_so8_triality_vector,70217,70271,4,73,0.00390625,0.9921875,496.0
+0,2.0,2,spinor_plus_proxy,key_only_block_so8_triality_plus,70474,70528,4,73,0.00390625,0.9921875,388.0
+0,2.0,2,spinor_minus_proxy,key_only_block_so8_triality_minus,70731,70785,4,73,0.00390625,0.9921875,476.0
