@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 import sys
 
@@ -10,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import pandas as pd
 import torch
+from tqdm.auto import tqdm
 
 from turboquant.analysis import (
     evaluate_layer_grid,
@@ -21,6 +23,9 @@ from turboquant.analysis import (
 )
 from turboquant.io_utils import ensure_dir
 from turboquant.runtime import DEFAULT_MODEL_ID, require_supported_python
+
+
+LOGGER = logging.getLogger("turboquant.validate")
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-layers", type=int, default=0)
     parser.add_argument("--bits", default="2,2.5,3,3.5,4")
     parser.add_argument("--eval-device", default="auto")
+    parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
 
 
@@ -54,11 +60,43 @@ def resolve_eval_device(raw: str) -> str:
     return raw
 
 
+def configure_logging(level_name: str) -> None:
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+def total_mode_steps(bit_grid: list[float]) -> int:
+    return 1 + (len(bit_grid) * 6)
+
+
 def synthetic_rows(args: argparse.Namespace, bit_grid: list[float]) -> list[dict[str, float | int | str]]:
     rows: list[dict[str, float | int | str]] = []
     eval_device = resolve_eval_device(args.eval_device)
+    progress = tqdm(
+        total=args.trials * args.synthetic_layers * total_mode_steps(bit_grid),
+        desc="synthetic replay",
+        unit="mode",
+        dynamic_ncols=True,
+    )
+
+    def on_step(row: dict[str, float | int | str]) -> None:
+        progress.set_postfix_str(
+            f"trial={row['trial']} layer={row['layer']} mode={row['mode']} bits={row['bit_setting']}"
+        )
+        progress.update(1)
+
     for trial in range(args.trials):
         for layer_idx in range(args.synthetic_layers):
+            LOGGER.info(
+                "synthetic trial=%s layer=%s device=%s",
+                trial,
+                layer_idx,
+                eval_device,
+            )
             keys, values = synthetic_kv(
                 seed=5_000 + (trial * 257) + layer_idx,
                 batch=args.batch,
@@ -75,8 +113,10 @@ def synthetic_rows(args: argparse.Namespace, bit_grid: list[float]) -> list[dict
                     layer_idx=layer_idx,
                     bit_grid=bit_grid,
                     eval_device=eval_device,
+                    progress_callback=on_step,
                 )
             )
+    progress.close()
     return rows
 
 
@@ -95,8 +135,31 @@ def captured_rows(args: argparse.Namespace, bit_grid: list[float]) -> tuple[list
         for capture_id in sorted(per_capture):
             selected_bundles.extend(per_capture[capture_id][: args.max_layers])
     model_name = selected_bundles[0].metadata.model_name
+    progress = tqdm(
+        total=args.trials * len(selected_bundles) * total_mode_steps(bit_grid),
+        desc="captured replay",
+        unit="mode",
+        dynamic_ncols=True,
+    )
+
+    def on_step(row: dict[str, float | int | str]) -> None:
+        progress.set_postfix_str(
+            "prompt="
+            f"{row.get('prompt_label', 'captured')} "
+            f"layer={row['layer']} mode={row['mode']} bits={row['bit_setting']}"
+        )
+        progress.update(1)
+
     for trial in range(args.trials):
         for bundle in selected_bundles:
+            LOGGER.info(
+                "captured trial=%s prompt=%s capture_id=%s layer=%s device=%s",
+                trial,
+                bundle.metadata.prompt_label or "unknown",
+                bundle.metadata.capture_id or bundle.capture_dir.name,
+                bundle.layer_idx,
+                eval_device,
+            )
             layer_rows = evaluate_layer_grid(
                 dataset="captured",
                 keys=bundle.keys,
@@ -105,12 +168,20 @@ def captured_rows(args: argparse.Namespace, bit_grid: list[float]) -> tuple[list
                 layer_idx=bundle.layer_idx,
                 bit_grid=bit_grid,
                 eval_device=eval_device,
+                progress_callback=on_step,
             )
             for row in layer_rows:
                 row["capture_id"] = bundle.metadata.capture_id or bundle.capture_dir.name
                 row["prompt_label"] = bundle.metadata.prompt_label or "unknown"
                 row["prompt_hash"] = bundle.metadata.prompt_hash
             rows.extend(layer_rows)
+            LOGGER.info(
+                "captured completed trial=%s prompt=%s layer=%s",
+                trial,
+                bundle.metadata.prompt_label or "unknown",
+                bundle.layer_idx,
+            )
+    progress.close()
     return rows, model_name
 
 
@@ -286,8 +357,15 @@ def markdown_summary(
 def main() -> int:
     require_supported_python()
     args = parse_args()
+    configure_logging(args.log_level)
     bit_grid = parse_bit_grid(args.bits)
     output_dir = ensure_dir(Path(args.output_dir))
+    LOGGER.info(
+        "starting validate_attention_scores query_source=%s eval_device=%s bits=%s",
+        args.query_source,
+        resolve_eval_device(args.eval_device),
+        ",".join(f"{bit:g}" for bit in bit_grid),
+    )
 
     if args.query_source == "synthetic":
         rows = synthetic_rows(args, bit_grid)
@@ -342,6 +420,7 @@ def main() -> int:
     print(summary_frame)
     if not threshold_frame.empty:
         print(threshold_frame)
+    LOGGER.info("finished validate_attention_scores query_source=%s", args.query_source)
     return 0
 
 

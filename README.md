@@ -6,6 +6,10 @@ CUDA, with paper-faithful offline replay and runtime-adjacent Pareto reports.
 Research-grade TurboQuant prototype for KV-cache compression experiments on
 Qwen3.5-9B in a Windows-native `uv` workflow.
 
+The main comparison in this repository fixes the original `Qwen3.5-9B` weights
+and changes only the KV-cache codec. The canonical decision gate is captured
+replay on real KV tensors, not synthetic replay alone.
+
 Licensed under the MIT License. See `LICENSE`.
 
 ## Focus
@@ -72,6 +76,11 @@ than the `key_only_block_so8_learned` path at the same key bit budget. The new
 research branch adds `protected_v` and `protected_v_lowrank` as middle Pareto
 points between exact values and aggressive full-KV compression.
 
+Current captured recommendation: keep runtime default as `key-only`.
+`protected_v` and `protected_v_lowrank` are promising intermediate Pareto
+points, but they are not yet close enough to `key_only_block_so8_learned` on
+real captured KV to replace it.
+
 ![Synthetic core validation](artifacts/plots/synthetic_errorbars.png)
 
 ![Key-only vs Full-KV replay](artifacts/plots/attention_tradeoffs.png)
@@ -130,12 +139,33 @@ prompt from `artifacts/kv/`. Means are taken from
 | full-KV | 3.5 | 0.9990 | 0.9893 | 0.2090 |
 | full-KV | 4.0 | 1.0000 | 0.9941 | 0.2559 |
 
+### Captured Representative Runtime View
+
+Captured replay on CUDA measures replay-side additional memory for saved layer
+tensors. `peak_vram_mb` below is not the total VRAM footprint of full Qwen
+generation.
+
+| Mode | Bits | Memory / Exact | Hidden Cosine | Logit Cosine | Peak VRAM (MB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| key-only (SO8 learned) | 2.0 | 0.5664 | 1.0010 | 0.9961 | 17.64 |
+| protected-V + low-rank | 2.0 | 0.2122 | 0.9648 | 0.9961 | 21.06 |
+| full-KV | 2.0 | 0.1309 | 0.9404 | 0.9971 | 17.70 |
+| key-only (SO8 learned) | 4.0 | 0.6289 | 0.9980 | 0.9990 | 17.64 |
+| protected-V + low-rank | 4.0 | 0.3308 | 0.9980 | 0.9990 | 21.06 |
+| full-KV | 4.0 | 0.2559 | 0.9951 | 0.9980 | 17.70 |
+
 The current captured conclusion is:
 
 - Runtime default should stay `key-only`.
 - `protected_v` and `protected_v_lowrank` create real middle Pareto points on real KV, but they do not yet approach `key_only_block_so8_learned` closely enough to replace it.
 - The current captured recommendation is `protected-V is promising but not ready`.
 - Secondary runtime tables now also track `prefill_seconds`, `decode_seconds`, and `peak_vram_mb`; `peak_vram_mb` is meaningful when replay runs with `--eval-device auto` on CUDA.
+
+The default runtime should only move away from `key-only` if a value-aware
+branch clearly beats `full_kv` on hidden-state metrics, gets close enough to
+`key_only_block_so8_learned`, and justifies its additional implementation
+complexity. Until then, `qwen35_rtx3060` stays on the current `key-only`
+default.
 
 ### Core Summary Statistics
 

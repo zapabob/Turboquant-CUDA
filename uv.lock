@@ -1052,6 +1052,7 @@ dependencies = [
     { name = "safetensors" },
     { name = "scipy" },
     { name = "sentencepiece" },
+    { name = "tqdm" },
     { name = "transformers" },
 ]
 
@@ -1077,6 +1078,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.14" },
     { name = "sentencepiece", specifier = ">=0.2" },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.5", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "turboquant-qwen35", extra = "cu128" } },
+    { name = "tqdm", specifier = ">=4.67" },
     { name = "transformers", specifier = ">=4.52" },
 ]
 provides-extras = ["cu128", "dev"]

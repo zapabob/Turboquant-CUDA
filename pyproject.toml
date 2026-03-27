@@ -20,6 +20,7 @@ dependencies = [
   "safetensors>=0.5",
   "scipy>=1.14",
   "sentencepiece>=0.2",
+  "tqdm>=4.67",
   "transformers>=4.52",
 ]
 

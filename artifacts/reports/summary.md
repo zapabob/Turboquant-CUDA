@@ -389,8 +389,26 @@ synthetic        protected_v_lowrank           4   4.0 hidden_cosine_similarity 
 
 ## Captured Replay
 
-Current mathematical bottleneck: value quantization drives most of the downstream hidden-state drift. At 2 bits, learned-SO(8) key-only exceeds full-KV by 0.0615 hidden cosine. Protected-V improves over full-KV by up to 0.0166 hidden cosine.
+Current mathematical bottleneck: value quantization drives most of the downstream hidden-state drift. At 2 bits, learned-SO(8) key-only exceeds full-KV by 0.0605 hidden cosine. Protected-V improves over full-KV by up to 0.0146 hidden cosine.
 Runtime recommendation: protected-V is promising but not ready.
+
+### Captured Headline
+
+- Runtime default remains `key-only` on real captured KV.
+- `full_kv` is still the memory floor, but hidden-state drift remains materially larger than the key-only baseline.
+- `protected_v_lowrank` is a real middle Pareto point: better hidden retention than `full_kv`, but not yet close enough to replace `key_only_block_so8_learned`.
+- `peak_vram_mb` below is replay-side additional CUDA usage for saved layer tensors, not end-to-end model inference VRAM.
+
+### Captured Representative Comparison
+
+| Mode | Bits | Memory / Exact | Hidden Cosine | Logit Cosine | Peak VRAM (MB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Key-Only (SO8 Learned) | 2.0 | 0.5664 | 1.0010 | 0.9961 | 17.64 |
+| Protected-V + LR | 2.0 | 0.2122 | 0.9648 | 0.9961 | 21.06 |
+| Full-KV | 2.0 | 0.1309 | 0.9404 | 0.9971 | 17.70 |
+| Key-Only (SO8 Learned) | 4.0 | 0.6289 | 0.9980 | 0.9990 | 17.64 |
+| Protected-V + LR | 4.0 | 0.3308 | 0.9980 | 0.9990 | 21.06 |
+| Full-KV | 4.0 | 0.2559 | 0.9951 | 0.9980 | 17.70 |
 
 ### Captured Primary Pareto Table
 
@@ -422,7 +440,7 @@ key_only_block_so8_learned           4    memory_ratio_vs_exact 0.628906 0.00000
                    full_kv         3.5    memory_ratio_vs_exact 0.208984 0.000000 0.000000  0.208984   0.208984
                    full_kv           4    memory_ratio_vs_exact 0.255859 0.000000 0.000000  0.255859   0.255859
                      exact       exact hidden_cosine_similarity 1.000000 0.000000 0.000000  1.000000   1.000000
-           key_only_random           2 hidden_cosine_similarity 0.998047 0.003906 0.001953  0.991831   1.004263
+           key_only_random           2 hidden_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
            key_only_random         2.5 hidden_cosine_similarity 1.000000 0.006379 0.003189  0.989850   1.010150
            key_only_random         3.5 hidden_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
            key_only_random           4 hidden_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
@@ -430,68 +448,68 @@ key_only_block_so8_learned           4    memory_ratio_vs_exact 0.628906 0.00000
  key_only_block_so8_static         2.5 hidden_cosine_similarity 0.998047 0.009831 0.004915  0.982404   1.013689
  key_only_block_so8_static         3.5 hidden_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
  key_only_block_so8_static           4 hidden_cosine_similarity 1.000000 0.000000 0.000000  1.000000   1.000000
-key_only_block_so8_learned           2 hidden_cosine_similarity 1.001953 0.003906 0.001953  0.995737   1.008169
-key_only_block_so8_learned         2.5 hidden_cosine_similarity 1.000977 0.004915 0.002458  0.993155   1.008798
+key_only_block_so8_learned           2 hidden_cosine_similarity 1.000977 0.004915 0.002458  0.993155   1.008798
+key_only_block_so8_learned         2.5 hidden_cosine_similarity 0.998047 0.006766 0.003383  0.987281   1.008813
 key_only_block_so8_learned         3.5 hidden_cosine_similarity 0.998047 0.003906 0.001953  0.991831   1.004263
-key_only_block_so8_learned           4 hidden_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
-               protected_v           2 hidden_cosine_similarity 0.957031 0.003189 0.001595  0.951956   0.962106
-               protected_v         2.5 hidden_cosine_similarity 0.956055 0.005859 0.002930  0.946731   0.965378
+key_only_block_so8_learned           4 hidden_cosine_similarity 0.998047 0.003906 0.001953  0.991831   1.004263
+               protected_v           2 hidden_cosine_similarity 0.955078 0.005043 0.002521  0.947054   0.963103
+               protected_v         2.5 hidden_cosine_similarity 0.957031 0.003189 0.001595  0.951956   0.962106
                protected_v         3.5 hidden_cosine_similarity 0.985352 0.003740 0.001870  0.979400   0.991303
-               protected_v           4 hidden_cosine_similarity 0.995117 0.001953 0.000977  0.992009   0.998225
-       protected_v_lowrank           2 hidden_cosine_similarity 0.960938 0.003189 0.001595  0.955862   0.966013
-       protected_v_lowrank         2.5 hidden_cosine_similarity 0.963867 0.004915 0.002458  0.956046   0.971688
-       protected_v_lowrank         3.5 hidden_cosine_similarity 0.984375 0.003189 0.001595  0.979300   0.989450
-       protected_v_lowrank           4 hidden_cosine_similarity 0.996094 0.003189 0.001595  0.991019   1.001169
+               protected_v           4 hidden_cosine_similarity 0.995117 0.004915 0.002458  0.987296   1.002938
+       protected_v_lowrank           2 hidden_cosine_similarity 0.964844 0.003189 0.001595  0.959769   0.969919
+       protected_v_lowrank         2.5 hidden_cosine_similarity 0.961914 0.004915 0.002458  0.954093   0.969735
+       protected_v_lowrank         3.5 hidden_cosine_similarity 0.985352 0.003740 0.001870  0.979400   0.991303
+       protected_v_lowrank           4 hidden_cosine_similarity 0.998047 0.002255 0.001128  0.994458   1.001636
                    full_kv           2 hidden_cosine_similarity 0.940430 0.006671 0.003336  0.929814   0.951045
                    full_kv         2.5 hidden_cosine_similarity 0.958984 0.003906 0.001953  0.952769   0.965200
-                   full_kv         3.5 hidden_cosine_similarity 0.989258 0.001953 0.000977  0.986150   0.992366
-                   full_kv           4 hidden_cosine_similarity 0.994141 0.002255 0.001128  0.990552   0.997729
+                   full_kv         3.5 hidden_cosine_similarity 0.987305 0.001953 0.000977  0.984197   0.990413
+                   full_kv           4 hidden_cosine_similarity 0.995117 0.001953 0.000977  0.992009   0.998225
                      exact       exact               hidden_mse 0.000000 0.000000 0.000000  0.000000   0.000000
-           key_only_random           2               hidden_mse 0.000437 0.000311 0.000156 -0.000058   0.000932
-           key_only_random         2.5               hidden_mse 0.000326 0.000144 0.000072  0.000097   0.000554
-           key_only_random         3.5               hidden_mse 0.000093 0.000041 0.000021  0.000027   0.000159
-           key_only_random           4               hidden_mse 0.000055 0.000065 0.000033 -0.000048   0.000159
- key_only_block_so8_static           2               hidden_mse 0.001389 0.000849 0.000424  0.000039   0.002740
- key_only_block_so8_static         2.5               hidden_mse 0.002375 0.002827 0.001414 -0.002124   0.006874
- key_only_block_so8_static         3.5               hidden_mse 0.000135 0.000102 0.000051 -0.000028   0.000298
- key_only_block_so8_static           4               hidden_mse 0.000121 0.000124 0.000062 -0.000077   0.000318
-key_only_block_so8_learned           2               hidden_mse 0.001312 0.001480 0.000740 -0.001044   0.003668
-key_only_block_so8_learned         2.5               hidden_mse 0.000796 0.000522 0.000261 -0.000036   0.001627
-key_only_block_so8_learned         3.5               hidden_mse 0.000210 0.000205 0.000103 -0.000117   0.000536
-key_only_block_so8_learned           4               hidden_mse 0.000089 0.000053 0.000027  0.000005   0.000174
-               protected_v           2               hidden_mse 0.053467 0.012628 0.006314  0.033373   0.073561
-               protected_v         2.5               hidden_mse 0.052856 0.011854 0.005927  0.033993   0.071720
-               protected_v         3.5               hidden_mse 0.016296 0.003717 0.001858  0.010382   0.022211
-               protected_v           4               hidden_mse 0.004536 0.000867 0.000434  0.003156   0.005916
-       protected_v_lowrank           2               hidden_mse 0.045837 0.008234 0.004117  0.032735   0.058940
-       protected_v_lowrank         2.5               hidden_mse 0.045410 0.007509 0.003755  0.033462   0.057359
-       protected_v_lowrank         3.5               hidden_mse 0.014038 0.002231 0.001116  0.010487   0.017589
-       protected_v_lowrank           4               hidden_mse 0.003925 0.000589 0.000294  0.002988   0.004862
-                   full_kv           2               hidden_mse 0.070190 0.017103 0.008552  0.042975   0.097405
-                   full_kv         2.5               hidden_mse 0.049255 0.011944 0.005972  0.030249   0.068262
+           key_only_random           2               hidden_mse 0.000512 0.000402 0.000201 -0.000127   0.001152
+           key_only_random         2.5               hidden_mse 0.000334 0.000177 0.000088  0.000052   0.000615
+           key_only_random         3.5               hidden_mse 0.000093 0.000047 0.000024  0.000018   0.000168
+           key_only_random           4               hidden_mse 0.000053 0.000064 0.000032 -0.000050   0.000155
+ key_only_block_so8_static           2               hidden_mse 0.001321 0.000819 0.000410  0.000018   0.002624
+ key_only_block_so8_static         2.5               hidden_mse 0.002679 0.003329 0.001665 -0.002619   0.007977
+ key_only_block_so8_static         3.5               hidden_mse 0.000152 0.000133 0.000067 -0.000060   0.000365
+ key_only_block_so8_static           4               hidden_mse 0.000102 0.000085 0.000042 -0.000033   0.000237
+key_only_block_so8_learned           2               hidden_mse 0.000395 0.000256 0.000128 -0.000012   0.000802
+key_only_block_so8_learned         2.5               hidden_mse 0.000635 0.000414 0.000207 -0.000024   0.001294
+key_only_block_so8_learned         3.5               hidden_mse 0.000181 0.000168 0.000084 -0.000086   0.000448
+key_only_block_so8_learned           4               hidden_mse 0.000077 0.000061 0.000030 -0.000019   0.000173
+               protected_v           2               hidden_mse 0.052917 0.012101 0.006051  0.033661   0.072173
+               protected_v         2.5               hidden_mse 0.052979 0.012412 0.006206  0.033228   0.072729
+               protected_v         3.5               hidden_mse 0.016251 0.003709 0.001855  0.010348   0.022153
+               protected_v           4               hidden_mse 0.004528 0.000909 0.000455  0.003081   0.005975
+       protected_v_lowrank           2               hidden_mse 0.045288 0.007955 0.003977  0.032630   0.057946
+       protected_v_lowrank         2.5               hidden_mse 0.045410 0.008063 0.004031  0.032580   0.058240
+       protected_v_lowrank         3.5               hidden_mse 0.014023 0.002315 0.001158  0.010339   0.017707
+       protected_v_lowrank           4               hidden_mse 0.003925 0.000618 0.000309  0.002943   0.004908
+                   full_kv           2               hidden_mse 0.070251 0.017002 0.008501  0.043198   0.097305
+                   full_kv         2.5               hidden_mse 0.049316 0.011845 0.005923  0.030468   0.068165
                    full_kv         3.5               hidden_mse 0.013870 0.003163 0.001582  0.008837   0.018904
-                   full_kv           4               hidden_mse 0.005646 0.001327 0.000663  0.003535   0.007757
+                   full_kv           4               hidden_mse 0.005638 0.001316 0.000658  0.003545   0.007731
                      exact       exact  logit_cosine_similarity 1.000000 0.000000 0.000000  1.000000   1.000000
            key_only_random           2  logit_cosine_similarity 0.997070 0.001953 0.000977  0.993962   1.000178
            key_only_random         2.5  logit_cosine_similarity 0.998047 0.003906 0.001953  0.991831   1.004263
            key_only_random         3.5  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
            key_only_random           4  logit_cosine_similarity 0.998047 0.003906 0.001953  0.991831   1.004263
- key_only_block_so8_static           2  logit_cosine_similarity 0.998047 0.003906 0.001953  0.991831   1.004263
- key_only_block_so8_static         2.5  logit_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
+ key_only_block_so8_static           2  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
+ key_only_block_so8_static         2.5  logit_cosine_similarity 0.998047 0.002255 0.001128  0.994458   1.001636
  key_only_block_so8_static         3.5  logit_cosine_similarity 1.000000 0.000000 0.000000  1.000000   1.000000
  key_only_block_so8_static           4  logit_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
-key_only_block_so8_learned           2  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
-key_only_block_so8_learned         2.5  logit_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
+key_only_block_so8_learned           2  logit_cosine_similarity 0.996094 0.003189 0.001595  0.991019   1.001169
+key_only_block_so8_learned         2.5  logit_cosine_similarity 0.997070 0.001953 0.000977  0.993962   1.000178
 key_only_block_so8_learned         3.5  logit_cosine_similarity 1.000000 0.000000 0.000000  1.000000   1.000000
-key_only_block_so8_learned           4  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
-               protected_v           2  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
-               protected_v         2.5  logit_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
+key_only_block_so8_learned           4  logit_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
+               protected_v           2  logit_cosine_similarity 0.996094 0.003189 0.001595  0.991019   1.001169
+               protected_v         2.5  logit_cosine_similarity 0.997070 0.001953 0.000977  0.993962   1.000178
                protected_v         3.5  logit_cosine_similarity 1.000000 0.000000 0.000000  1.000000   1.000000
-               protected_v           4  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
-       protected_v_lowrank           2  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
-       protected_v_lowrank         2.5  logit_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
+               protected_v           4  logit_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
+       protected_v_lowrank           2  logit_cosine_similarity 0.996094 0.003189 0.001595  0.991019   1.001169
+       protected_v_lowrank         2.5  logit_cosine_similarity 0.997070 0.001953 0.000977  0.993962   1.000178
        protected_v_lowrank         3.5  logit_cosine_similarity 1.000000 0.000000 0.000000  1.000000   1.000000
-       protected_v_lowrank           4  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
+       protected_v_lowrank           4  logit_cosine_similarity 0.999023 0.001953 0.000977  0.995916   1.002131
                    full_kv           2  logit_cosine_similarity 0.997070 0.001953 0.000977  0.993962   1.000178
                    full_kv         2.5  logit_cosine_similarity 0.998047 0.003906 0.001953  0.991831   1.004263
                    full_kv         3.5  logit_cosine_similarity 0.997070 0.003740 0.001870  0.991119   1.003021
@@ -522,86 +540,111 @@ key_only_block_so8_learned           4         logit_top1_match 1.000000 0.00000
                    full_kv         3.5         logit_top1_match 1.000000 0.000000 0.000000  1.000000   1.000000
                    full_kv           4         logit_top1_match 1.000000 0.000000 0.000000  1.000000   1.000000
                      exact       exact       logit_top5_overlap 1.000000 0.000000 0.000000  1.000000   1.000000
-           key_only_random           2       logit_top5_overlap 0.831250 0.064952 0.032476  0.727897   0.934603
-           key_only_random         2.5       logit_top5_overlap 0.840625 0.051412 0.025706  0.758817   0.922434
-           key_only_random         3.5       logit_top5_overlap 0.890625 0.048278 0.024139  0.813805   0.967446
-           key_only_random           4       logit_top5_overlap 0.931250 0.021651 0.010825  0.896799   0.965701
- key_only_block_so8_static           2       logit_top5_overlap 0.843750 0.083229 0.041615  0.711314   0.976186
- key_only_block_so8_static         2.5       logit_top5_overlap 0.831250 0.062500 0.031250  0.731799   0.930701
- key_only_block_so8_static         3.5       logit_top5_overlap 0.881250 0.054486 0.027243  0.794550   0.967950
- key_only_block_so8_static           4       logit_top5_overlap 0.906250 0.037500 0.018750  0.846579   0.965921
-key_only_block_so8_learned           2       logit_top5_overlap 0.846875 0.057168 0.028584  0.755907   0.937843
-key_only_block_so8_learned         2.5       logit_top5_overlap 0.868750 0.048412 0.024206  0.791715   0.945785
-key_only_block_so8_learned         3.5       logit_top5_overlap 0.893750 0.055434 0.027717  0.805542   0.981958
-key_only_block_so8_learned           4       logit_top5_overlap 0.921875 0.046069 0.023035  0.848568   0.995182
-               protected_v           2       logit_top5_overlap 0.846875 0.057168 0.028584  0.755907   0.937843
-               protected_v         2.5       logit_top5_overlap 0.868750 0.048412 0.024206  0.791715   0.945785
-               protected_v         3.5       logit_top5_overlap 0.893750 0.055434 0.027717  0.805542   0.981958
-               protected_v           4       logit_top5_overlap 0.921875 0.046069 0.023035  0.848568   0.995182
-       protected_v_lowrank           2       logit_top5_overlap 0.846875 0.057168 0.028584  0.755907   0.937843
-       protected_v_lowrank         2.5       logit_top5_overlap 0.868750 0.048412 0.024206  0.791715   0.945785
-       protected_v_lowrank         3.5       logit_top5_overlap 0.893750 0.055434 0.027717  0.805542   0.981958
-       protected_v_lowrank           4       logit_top5_overlap 0.921875 0.046069 0.023035  0.848568   0.995182
-                   full_kv           2       logit_top5_overlap 0.831250 0.064952 0.032476  0.727897   0.934603
-                   full_kv         2.5       logit_top5_overlap 0.840625 0.051412 0.025706  0.758817   0.922434
-                   full_kv         3.5       logit_top5_overlap 0.890625 0.048278 0.024139  0.813805   0.967446
-                   full_kv           4       logit_top5_overlap 0.931250 0.021651 0.010825  0.896799   0.965701
+           key_only_random           2       logit_top5_overlap 0.834375 0.059839 0.029920  0.739158   0.929592
+           key_only_random         2.5       logit_top5_overlap 0.856250 0.052540 0.026270  0.772648   0.939852
+           key_only_random         3.5       logit_top5_overlap 0.887500 0.044488 0.022244  0.816710   0.958290
+           key_only_random           4       logit_top5_overlap 0.934375 0.023662 0.011831  0.896723   0.972027
+ key_only_block_so8_static           2       logit_top5_overlap 0.843750 0.075346 0.037673  0.723857   0.963643
+ key_only_block_so8_static         2.5       logit_top5_overlap 0.834375 0.063225 0.031612  0.733770   0.934980
+ key_only_block_so8_static         3.5       logit_top5_overlap 0.890625 0.051412 0.025706  0.808816   0.972433
+ key_only_block_so8_static           4       logit_top5_overlap 0.906250 0.029756 0.014878  0.858902   0.953598
+key_only_block_so8_learned           2       logit_top5_overlap 0.800000 0.044488 0.022244  0.729210   0.870790
+key_only_block_so8_learned         2.5       logit_top5_overlap 0.850000 0.030619 0.015309  0.801279   0.898721
+key_only_block_so8_learned         3.5       logit_top5_overlap 0.893750 0.042696 0.021348  0.825812   0.961688
+key_only_block_so8_learned           4       logit_top5_overlap 0.931250 0.033072 0.016536  0.878625   0.983875
+               protected_v           2       logit_top5_overlap 0.800000 0.044488 0.022244  0.729210   0.870790
+               protected_v         2.5       logit_top5_overlap 0.850000 0.030619 0.015309  0.801279   0.898721
+               protected_v         3.5       logit_top5_overlap 0.893750 0.042696 0.021348  0.825812   0.961688
+               protected_v           4       logit_top5_overlap 0.931250 0.033072 0.016536  0.878625   0.983875
+       protected_v_lowrank           2       logit_top5_overlap 0.800000 0.044488 0.022244  0.729210   0.870790
+       protected_v_lowrank         2.5       logit_top5_overlap 0.850000 0.030619 0.015309  0.801279   0.898721
+       protected_v_lowrank         3.5       logit_top5_overlap 0.893750 0.042696 0.021348  0.825812   0.961688
+       protected_v_lowrank           4       logit_top5_overlap 0.931250 0.033072 0.016536  0.878625   0.983875
+                   full_kv           2       logit_top5_overlap 0.834375 0.059839 0.029920  0.739158   0.929592
+                   full_kv         2.5       logit_top5_overlap 0.856250 0.052540 0.026270  0.772648   0.939852
+                   full_kv         3.5       logit_top5_overlap 0.887500 0.044488 0.022244  0.816710   0.958290
+                   full_kv           4       logit_top5_overlap 0.934375 0.023662 0.011831  0.896723   0.972027
 ```
 
 ### Captured Secondary Runtime Table
 
 ```
-                      mode bit_setting          metric     mean      std      sem  ci95_low  ci95_high
-                     exact       exact prefill_seconds 0.000000 0.000000 0.000000  0.000000   0.000000
-           key_only_random           2 prefill_seconds 0.034647 0.009683 0.004842  0.019238   0.050055
-           key_only_random         2.5 prefill_seconds 0.039676 0.014640 0.007320  0.016380   0.062972
-           key_only_random         3.5 prefill_seconds 0.042973 0.009926 0.004963  0.027180   0.058767
-           key_only_random           4 prefill_seconds 0.036120 0.003280 0.001640  0.030901   0.041340
- key_only_block_so8_static           2 prefill_seconds 0.031094 0.009066 0.004533  0.016668   0.045520
- key_only_block_so8_static         2.5 prefill_seconds 0.036048 0.009409 0.004704  0.021077   0.051019
- key_only_block_so8_static         3.5 prefill_seconds 0.038475 0.004789 0.002394  0.030855   0.046095
- key_only_block_so8_static           4 prefill_seconds 0.036284 0.009399 0.004700  0.021328   0.051241
-key_only_block_so8_learned           2 prefill_seconds 0.030461 0.007483 0.003742  0.018554   0.042369
-key_only_block_so8_learned         2.5 prefill_seconds 0.049113 0.024097 0.012048  0.010770   0.087456
-key_only_block_so8_learned         3.5 prefill_seconds 0.036037 0.004241 0.002121  0.029288   0.042786
-key_only_block_so8_learned           4 prefill_seconds 0.032119 0.002089 0.001044  0.028796   0.035443
-               protected_v           2 prefill_seconds 0.912780 1.706295 0.853147 -1.802316   3.627876
-               protected_v         2.5 prefill_seconds 0.065246 0.010284 0.005142  0.048882   0.081611
-               protected_v         3.5 prefill_seconds 0.073350 0.009660 0.004830  0.057978   0.088722
-               protected_v           4 prefill_seconds 0.060991 0.010854 0.005427  0.043719   0.078263
-       protected_v_lowrank           2 prefill_seconds 0.069836 0.019224 0.009612  0.039246   0.100426
-       protected_v_lowrank         2.5 prefill_seconds 0.074441 0.011751 0.005876  0.055742   0.093139
-       protected_v_lowrank         3.5 prefill_seconds 0.077075 0.004292 0.002146  0.070245   0.083905
-       protected_v_lowrank           4 prefill_seconds 0.074642 0.017898 0.008949  0.046162   0.103121
-                   full_kv           2 prefill_seconds 0.058801 0.015495 0.007747  0.034145   0.083457
-                   full_kv         2.5 prefill_seconds 0.078370 0.015540 0.007770  0.053643   0.103098
-                   full_kv         3.5 prefill_seconds 0.115939 0.093330 0.046665 -0.032570   0.264448
-                   full_kv           4 prefill_seconds 0.056746 0.009955 0.004977  0.040905   0.072586
-                     exact       exact  decode_seconds 0.000000 0.000000 0.000000  0.000000   0.000000
-           key_only_random           2  decode_seconds 0.004757 0.001642 0.000821  0.002144   0.007370
-           key_only_random         2.5  decode_seconds 0.005382 0.001505 0.000753  0.002987   0.007777
-           key_only_random         3.5  decode_seconds 0.012273 0.012500 0.006250 -0.007618   0.032164
-           key_only_random           4  decode_seconds 0.006416 0.003488 0.001744  0.000866   0.011965
- key_only_block_so8_static           2  decode_seconds 0.013364 0.003284 0.001642  0.008139   0.018590
- key_only_block_so8_static         2.5  decode_seconds 0.015015 0.003175 0.001587  0.009964   0.020067
- key_only_block_so8_static         3.5  decode_seconds 0.020170 0.011482 0.005741  0.001900   0.038440
- key_only_block_so8_static           4  decode_seconds 0.019059 0.006472 0.003236  0.008761   0.029358
-key_only_block_so8_learned           2  decode_seconds 0.013404 0.004203 0.002101  0.006716   0.020091
-key_only_block_so8_learned         2.5  decode_seconds 0.018331 0.005580 0.002790  0.009452   0.027210
-key_only_block_so8_learned         3.5  decode_seconds 0.015877 0.002125 0.001062  0.012496   0.019258
-key_only_block_so8_learned           4  decode_seconds 0.013432 0.001939 0.000969  0.010347   0.016516
-               protected_v           2  decode_seconds 0.013170 0.003934 0.001967  0.006911   0.019429
-               protected_v         2.5  decode_seconds 0.016475 0.004774 0.002387  0.008880   0.024071
-               protected_v         3.5  decode_seconds 0.017952 0.003084 0.001542  0.013044   0.022860
-               protected_v           4  decode_seconds 0.013004 0.003290 0.001645  0.007769   0.018238
-       protected_v_lowrank           2  decode_seconds 0.014611 0.001435 0.000717  0.012328   0.016893
-       protected_v_lowrank         2.5  decode_seconds 0.015879 0.003219 0.001609  0.010757   0.021001
-       protected_v_lowrank         3.5  decode_seconds 0.017126 0.002754 0.001377  0.012744   0.021508
-       protected_v_lowrank           4  decode_seconds 0.019266 0.009157 0.004579  0.004695   0.033837
-                   full_kv           2  decode_seconds 0.005164 0.002663 0.001331  0.000926   0.009401
-                   full_kv         2.5  decode_seconds 0.006679 0.003548 0.001774  0.001034   0.012324
-                   full_kv         3.5  decode_seconds 0.007385 0.002094 0.001047  0.004053   0.010717
-                   full_kv           4  decode_seconds 0.004069 0.000956 0.000478  0.002549   0.005590
+                      mode bit_setting          metric      mean      std      sem  ci95_low  ci95_high
+                     exact       exact prefill_seconds  0.000713 0.000277 0.000139  0.000271   0.001154
+           key_only_random           2 prefill_seconds  0.205184 0.393818 0.196909 -0.421468   0.831836
+           key_only_random         2.5 prefill_seconds  0.013424 0.006135 0.003067  0.003662   0.023186
+           key_only_random         3.5 prefill_seconds  0.011497 0.002325 0.001163  0.007797   0.015198
+           key_only_random           4 prefill_seconds  0.010457 0.007652 0.003826 -0.001719   0.022632
+ key_only_block_so8_static           2 prefill_seconds  0.008789 0.002149 0.001074  0.005370   0.012208
+ key_only_block_so8_static         2.5 prefill_seconds  0.012957 0.004963 0.002482  0.005059   0.020855
+ key_only_block_so8_static         3.5 prefill_seconds  0.011790 0.000956 0.000478  0.010269   0.013312
+ key_only_block_so8_static           4 prefill_seconds  0.008793 0.002087 0.001044  0.005471   0.012114
+key_only_block_so8_learned           2 prefill_seconds  0.006338 0.001076 0.000538  0.004627   0.008050
+key_only_block_so8_learned         2.5 prefill_seconds  0.008937 0.000860 0.000430  0.007568   0.010306
+key_only_block_so8_learned         3.5 prefill_seconds  0.008763 0.000909 0.000455  0.007316   0.010209
+key_only_block_so8_learned           4 prefill_seconds  0.007540 0.002716 0.001358  0.003219   0.011861
+               protected_v           2 prefill_seconds  0.504019 0.966568 0.483284 -1.034006   2.042045
+               protected_v         2.5 prefill_seconds  0.019143 0.004751 0.002376  0.011582   0.026703
+               protected_v         3.5 prefill_seconds  0.018293 0.003756 0.001878  0.012316   0.024270
+               protected_v           4 prefill_seconds  0.017932 0.004233 0.002117  0.011196   0.024668
+       protected_v_lowrank           2 prefill_seconds  0.078423 0.059139 0.029570 -0.015681   0.172526
+       protected_v_lowrank         2.5 prefill_seconds  0.030303 0.006935 0.003468  0.019268   0.041339
+       protected_v_lowrank         3.5 prefill_seconds  0.039057 0.020326 0.010163  0.006713   0.071400
+       protected_v_lowrank           4 prefill_seconds  0.028483 0.004839 0.002419  0.020783   0.036182
+                   full_kv           2 prefill_seconds  0.012549 0.002544 0.001272  0.008501   0.016597
+                   full_kv         2.5 prefill_seconds  0.026739 0.011259 0.005630  0.008824   0.044655
+                   full_kv         3.5 prefill_seconds  0.059155 0.062645 0.031323 -0.040527   0.158838
+                   full_kv           4 prefill_seconds  0.012888 0.002798 0.001399  0.008437   0.017340
+                     exact       exact  decode_seconds  0.028657 0.054202 0.027101 -0.057591   0.114905
+           key_only_random           2  decode_seconds  0.003437 0.000830 0.000415  0.002116   0.004758
+           key_only_random         2.5  decode_seconds  0.004230 0.001204 0.000602  0.002313   0.006146
+           key_only_random         3.5  decode_seconds  0.004309 0.001684 0.000842  0.001629   0.006989
+           key_only_random           4  decode_seconds  0.003475 0.001882 0.000941  0.000481   0.006469
+ key_only_block_so8_static           2  decode_seconds  0.003009 0.000957 0.000478  0.001487   0.004532
+ key_only_block_so8_static         2.5  decode_seconds  0.004638 0.001664 0.000832  0.001990   0.007285
+ key_only_block_so8_static         3.5  decode_seconds  0.005029 0.002121 0.001061  0.001654   0.008404
+ key_only_block_so8_static           4  decode_seconds  0.003432 0.000963 0.000482  0.001899   0.004964
+key_only_block_so8_learned           2  decode_seconds  0.002797 0.001006 0.000503  0.001195   0.004398
+key_only_block_so8_learned         2.5  decode_seconds  0.003515 0.000828 0.000414  0.002197   0.004833
+key_only_block_so8_learned         3.5  decode_seconds  0.002952 0.000292 0.000146  0.002487   0.003417
+key_only_block_so8_learned           4  decode_seconds  0.002809 0.001022 0.000511  0.001183   0.004436
+               protected_v           2  decode_seconds  0.003815 0.001540 0.000770  0.001364   0.006266
+               protected_v         2.5  decode_seconds  0.003438 0.001036 0.000518  0.001790   0.005086
+               protected_v         3.5  decode_seconds  0.003215 0.001165 0.000582  0.001362   0.005068
+               protected_v           4  decode_seconds  0.003676 0.001852 0.000926  0.000729   0.006622
+       protected_v_lowrank           2  decode_seconds  0.004701 0.004445 0.002222 -0.002372   0.011774
+       protected_v_lowrank         2.5  decode_seconds  0.003546 0.001211 0.000605  0.001619   0.005472
+       protected_v_lowrank         3.5  decode_seconds  0.004763 0.002382 0.001191  0.000973   0.008554
+       protected_v_lowrank           4  decode_seconds  0.002202 0.000503 0.000252  0.001401   0.003002
+                   full_kv           2  decode_seconds  0.003582 0.001387 0.000694  0.001375   0.005790
+                   full_kv         2.5  decode_seconds  0.004123 0.000936 0.000468  0.002634   0.005613
+                   full_kv         3.5  decode_seconds  0.005006 0.002907 0.001454  0.000380   0.009632
+                   full_kv           4  decode_seconds  0.002779 0.000392 0.000196  0.002155   0.003403
+                     exact       exact    peak_vram_mb 14.317871 4.068733 2.034367  7.843608  20.792134
+           key_only_random           2    peak_vram_mb 15.610352 4.141278 2.070639  9.020654  22.200049
+           key_only_random         2.5    peak_vram_mb 17.490112 0.205461 0.102731 17.163178  17.817047
+           key_only_random         3.5    peak_vram_mb 17.490112 0.205461 0.102731 17.163178  17.817047
+           key_only_random           4    peak_vram_mb 17.641602 0.248527 0.124263 17.246140  18.037063
+ key_only_block_so8_static           2    peak_vram_mb 15.610352 4.141278 2.070639  9.020654  22.200049
+ key_only_block_so8_static         2.5    peak_vram_mb 17.490112 0.205461 0.102731 17.163178  17.817047
+ key_only_block_so8_static         3.5    peak_vram_mb 17.490112 0.205461 0.102731 17.163178  17.817047
+ key_only_block_so8_static           4    peak_vram_mb 17.641602 0.248527 0.124263 17.246140  18.037063
+key_only_block_so8_learned           2    peak_vram_mb 17.644531 0.248527 0.124263 17.249070  18.039993
+key_only_block_so8_learned         2.5    peak_vram_mb 17.493042 0.205461 0.102731 17.166107  17.819977
+key_only_block_so8_learned         3.5    peak_vram_mb 17.493042 0.205461 0.102731 17.166107  17.819977
+key_only_block_so8_learned           4    peak_vram_mb 17.644531 0.248527 0.124263 17.249070  18.039993
+               protected_v           2    peak_vram_mb 17.666504 0.253860 0.126930 17.262556  18.070452
+               protected_v         2.5    peak_vram_mb 17.570679 0.226261 0.113130 17.210647  17.930710
+               protected_v         3.5    peak_vram_mb 17.570679 0.226261 0.113130 17.210647  17.930710
+               protected_v           4    peak_vram_mb 17.666504 0.253860 0.126930 17.262556  18.070452
+       protected_v_lowrank           2    peak_vram_mb 21.063477 0.158838 0.079419 20.810729  21.316224
+       protected_v_lowrank         2.5    peak_vram_mb 21.064453 0.158838 0.079419 20.811706  21.317200
+       protected_v_lowrank         3.5    peak_vram_mb 21.064453 0.158838 0.079419 20.811706  21.317200
+       protected_v_lowrank           4    peak_vram_mb 21.063477 0.158838 0.079419 20.810729  21.316224
+                   full_kv           2    peak_vram_mb 17.697754 0.263993 0.131996 17.277682  18.117826
+                   full_kv         2.5    peak_vram_mb 17.547241 0.220927 0.110464 17.195696  17.898786
+                   full_kv         3.5    peak_vram_mb 17.547241 0.220927 0.110464 17.195696  17.898786
+                   full_kv           4    peak_vram_mb 17.697754 0.263993 0.131996 17.277682  18.117826
 ```
 
 ### Captured First-Layer Thresholds
@@ -621,7 +664,7 @@ captured                    full_kv         2.5   2.5   explain-359133ba      ex
 captured                    full_kv         2.5   2.5 reasoning-30ae1199    reasoning 30ae119902afb94a1eec462127d49b5709480c490c445bbdfd034ca15a224192 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured                    full_kv         2.5   2.5   summary-42f56222      summary 42f562224f59c159e64b383049a08972709be617bc7dadf6a89ebec35a0a2060 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured                    full_kv         3.5   3.5    coding-ca766984       coding ca7669847a89be275954e36db2667fc58ca706b565d2790513a6931dfd2606f1 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
-captured                    full_kv         3.5   3.5   explain-359133ba      explain 359133bab8404030a172f8efff97876f8565184962bf2f2677de73be054779c6 hidden_cosine_similarity       0.99  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
+captured                    full_kv         3.5   3.5   explain-359133ba      explain 359133bab8404030a172f8efff97876f8565184962bf2f2677de73be054779c6 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured                    full_kv         3.5   3.5 reasoning-30ae1199    reasoning 30ae119902afb94a1eec462127d49b5709480c490c445bbdfd034ca15a224192 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured                    full_kv         3.5   3.5   summary-42f56222      summary 42f562224f59c159e64b383049a08972709be617bc7dadf6a89ebec35a0a2060 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured                    full_kv           4   4.0    coding-ca766984       coding ca7669847a89be275954e36db2667fc58ca706b565d2790513a6931dfd2606f1 hidden_cosine_similarity       0.99  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
@@ -690,7 +733,7 @@ captured                protected_v         3.5   3.5 reasoning-30ae1199    reas
 captured                protected_v         3.5   3.5   summary-42f56222      summary 42f562224f59c159e64b383049a08972709be617bc7dadf6a89ebec35a0a2060 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v           4   4.0    coding-ca766984       coding ca7669847a89be275954e36db2667fc58ca706b565d2790513a6931dfd2606f1 hidden_cosine_similarity       0.99  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v           4   4.0   explain-359133ba      explain 359133bab8404030a172f8efff97876f8565184962bf2f2677de73be054779c6 hidden_cosine_similarity       0.99  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
-captured                protected_v           4   4.0 reasoning-30ae1199    reasoning 30ae119902afb94a1eec462127d49b5709480c490c445bbdfd034ca15a224192 hidden_cosine_similarity       0.99  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
+captured                protected_v           4   4.0 reasoning-30ae1199    reasoning 30ae119902afb94a1eec462127d49b5709480c490c445bbdfd034ca15a224192 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v           4   4.0   summary-42f56222      summary 42f562224f59c159e64b383049a08972709be617bc7dadf6a89ebec35a0a2060 hidden_cosine_similarity       0.99  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured        protected_v_lowrank           2   2.0    coding-ca766984       coding ca7669847a89be275954e36db2667fc58ca706b565d2790513a6931dfd2606f1 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured        protected_v_lowrank           2   2.0   explain-359133ba      explain 359133bab8404030a172f8efff97876f8565184962bf2f2677de73be054779c6 hidden_cosine_similarity       0.99  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
@@ -777,11 +820,11 @@ captured            key_only_random           4   4.0   explain-359133ba      ex
 captured            key_only_random           4   4.0 reasoning-30ae1199    reasoning 30ae119902afb94a1eec462127d49b5709480c490c445bbdfd034ca15a224192 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured            key_only_random           4   4.0   summary-42f56222      summary 42f562224f59c159e64b383049a08972709be617bc7dadf6a89ebec35a0a2060 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v           2   2.0    coding-ca766984       coding ca7669847a89be275954e36db2667fc58ca706b565d2790513a6931dfd2606f1 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
-captured                protected_v           2   2.0   explain-359133ba      explain 359133bab8404030a172f8efff97876f8565184962bf2f2677de73be054779c6 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
+captured                protected_v           2   2.0   explain-359133ba      explain 359133bab8404030a172f8efff97876f8565184962bf2f2677de73be054779c6 hidden_cosine_similarity       0.95  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v           2   2.0 reasoning-30ae1199    reasoning 30ae119902afb94a1eec462127d49b5709480c490c445bbdfd034ca15a224192 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v           2   2.0   summary-42f56222      summary 42f562224f59c159e64b383049a08972709be617bc7dadf6a89ebec35a0a2060 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v         2.5   2.5    coding-ca766984       coding ca7669847a89be275954e36db2667fc58ca706b565d2790513a6931dfd2606f1 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
-captured                protected_v         2.5   2.5   explain-359133ba      explain 359133bab8404030a172f8efff97876f8565184962bf2f2677de73be054779c6 hidden_cosine_similarity       0.95  1   0.0  0.0  0.0       0.0        0.0 H:\Qwen3.5-9B-official-hf     captured
+captured                protected_v         2.5   2.5   explain-359133ba      explain 359133bab8404030a172f8efff97876f8565184962bf2f2677de73be054779c6 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v         2.5   2.5 reasoning-30ae1199    reasoning 30ae119902afb94a1eec462127d49b5709480c490c445bbdfd034ca15a224192 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v         2.5   2.5   summary-42f56222      summary 42f562224f59c159e64b383049a08972709be617bc7dadf6a89ebec35a0a2060 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured
 captured                protected_v         3.5   3.5    coding-ca766984       coding ca7669847a89be275954e36db2667fc58ca706b565d2790513a6931dfd2606f1 hidden_cosine_similarity       0.95  1  -1.0  0.0  0.0      -1.0       -1.0 H:\Qwen3.5-9B-official-hf     captured

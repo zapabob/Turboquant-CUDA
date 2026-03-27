@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import math
 import time
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import torch
@@ -275,6 +276,7 @@ def evaluate_layer_grid(
     bit_grid: list[float],
     key_only_default: bool = True,
     eval_device: str | torch.device | None = None,
+    progress_callback: Callable[[dict[str, float | int | str]], None] | None = None,
 ) -> list[dict[str, float | int | str]]:
     rows: list[dict[str, float | int | str]] = []
     target_device = torch.device(eval_device) if eval_device is not None else keys.device
@@ -283,22 +285,23 @@ def evaluate_layer_grid(
     if values.device != target_device:
         values = values.to(target_device)
     queries = select_queries(keys, seed=10_000 + (trial * 257) + layer_idx)
-    rows.append(
-        _evaluate_mode(
-            dataset=dataset,
-            layer_idx=layer_idx,
-            trial=trial,
-            bit_setting="exact",
-            bits=None,
-            mode="exact",
-            keys=keys,
-            values=values,
-            queries=queries,
-            codec=None,
-            value_mode="exact",
-            calibrate_codec=False,
-        )
+    exact_row = _evaluate_mode(
+        dataset=dataset,
+        layer_idx=layer_idx,
+        trial=trial,
+        bit_setting="exact",
+        bits=None,
+        mode="exact",
+        keys=keys,
+        values=values,
+        queries=queries,
+        codec=None,
+        value_mode="exact",
+        calibrate_codec=False,
     )
+    rows.append(exact_row)
+    if progress_callback is not None:
+        progress_callback(exact_row)
     for bit_value in bit_grid:
         key_bits = int(math.floor(bit_value))
         bit_setting = f"{bit_value:g}"
@@ -331,22 +334,23 @@ def evaluate_layer_grid(
                     value_codec=value_codec,
                 )
             )
-            rows.append(
-                _evaluate_mode(
-                    dataset=dataset,
-                    layer_idx=layer_idx,
-                    trial=trial,
-                    bit_setting=bit_setting,
-                    bits=bit_value,
-                    mode=mode,
-                    keys=keys,
-                    values=values,
-                    queries=queries,
-                    codec=codec,
-                    value_mode=value_mode,
-                    calibrate_codec=calibrate_codec,
-                )
+            mode_row = _evaluate_mode(
+                dataset=dataset,
+                layer_idx=layer_idx,
+                trial=trial,
+                bit_setting=bit_setting,
+                bits=bit_value,
+                mode=mode,
+                keys=keys,
+                values=values,
+                queries=queries,
+                codec=codec,
+                value_mode=value_mode,
+                calibrate_codec=calibrate_codec,
             )
+            rows.append(mode_row)
+            if progress_callback is not None:
+                progress_callback(mode_row)
     return rows
 
 

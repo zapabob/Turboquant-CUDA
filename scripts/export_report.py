@@ -418,6 +418,56 @@ def render_markdown_summary(
     else:
         captured_threshold_text = ""
 
+    captured_highlights: list[str] = []
+    if captured_summary is not None and not captured_summary.empty:
+        def _metric_mean(mode: str, bit: str, metric: str) -> float | None:
+            subset = captured_summary.loc[
+                (captured_summary["mode"] == mode)
+                & (captured_summary["bit_setting"] == bit)
+                & (captured_summary["metric"] == metric),
+                "mean",
+            ]
+            if subset.empty:
+                return None
+            return float(subset.iloc[0])
+
+        representative_rows = [
+            ("key_only_block_so8_learned", "2"),
+            ("protected_v_lowrank", "2"),
+            ("full_kv", "2"),
+            ("key_only_block_so8_learned", "4"),
+            ("protected_v_lowrank", "4"),
+            ("full_kv", "4"),
+        ]
+        captured_highlights.extend(
+            [
+                "### Captured Headline",
+                "",
+                "- Runtime default remains `key-only` on real captured KV.",
+                "- `full_kv` is still the memory floor, but hidden-state drift remains materially larger than the key-only baseline.",
+                "- `protected_v_lowrank` is a real middle Pareto point: better hidden retention than `full_kv`, but not yet close enough to replace `key_only_block_so8_learned`.",
+                "- `peak_vram_mb` below is replay-side additional CUDA usage for saved layer tensors, not end-to-end model inference VRAM.",
+                "",
+                "### Captured Representative Comparison",
+                "",
+                "| Mode | Bits | Memory / Exact | Hidden Cosine | Logit Cosine | Peak VRAM (MB) |",
+                "| --- | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for mode, bit in representative_rows:
+            memory = _metric_mean(mode, bit, "memory_ratio_vs_exact")
+            hidden = _metric_mean(mode, bit, "hidden_cosine_similarity")
+            logit = _metric_mean(mode, bit, "logit_cosine_similarity")
+            peak_vram = _metric_mean(mode, bit, "peak_vram_mb")
+            if None in (memory, hidden, logit, peak_vram):
+                continue
+            captured_highlights.append(
+                f"| {_mode_label(mode)} | {bit}.0 | {memory:.4f} | {hidden:.4f} | {logit:.4f} | {peak_vram:.2f} |"
+                if bit.isdigit()
+                else f"| {_mode_label(mode)} | {bit} | {memory:.4f} | {hidden:.4f} | {logit:.4f} | {peak_vram:.2f} |"
+            )
+        captured_highlights.extend(["", "### Captured Primary Pareto Table", ""])
+
     lines = [
         "# TurboQuant Report",
         "",
@@ -450,8 +500,7 @@ def render_markdown_summary(
                 captured_bottleneck,
                 captured_recommendation or "Runtime recommendation: keep runtime default as key-only.",
                 "",
-                "### Captured Primary Pareto Table",
-                "",
+                *captured_highlights,
                 captured_text,
                 "",
             ]
