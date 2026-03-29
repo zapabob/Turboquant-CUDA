@@ -1,0 +1,12 @@
+{
+  "bundle_keys": [
+    "artifacts/kv_triality_full_smoke/prompt-a:0",
+    "artifacts/kv_triality_full_smoke/prompt-b:0"
+  ],
+  "config_fingerprint": "d18d369b06aedbddcef002c73b9e84ec6f4c7baa726f56536a614de2b628c8da",
+  "n_bundles": 2,
+  "next_bundle_index": 0,
+  "next_trial": 3,
+  "trial_count": 3,
+  "updated_at": "2026-03-29T02:14:42.720829+00:00"
+}

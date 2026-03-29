@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import torch
 import torch.nn.functional as F
@@ -141,8 +142,13 @@ class TurboQuantMSE:
         steps: int = 60,
         lr: float = 5e-2,
         rank_weight: float = 0.1,
+        step_metrics_callback: Callable[[int, torch.Tensor], None] | None = None,
     ) -> torch.Tensor:
-        """Fit a block-SO(8) rotation using a quantization-aware STE proxy."""
+        """Fit a block-SO(8) rotation using a quantization-aware STE proxy.
+
+        If ``step_metrics_callback`` is set, it is invoked after each optimizer step with
+        ``(step_index, rotation_tensor)`` where ``rotation_tensor`` is the current block-diagonal SO(8) matrix.
+        """
 
         if self.config.rotation_policy != "block_so8_learned":
             return self.rotation
@@ -163,7 +169,7 @@ class TurboQuantMSE:
         skew_blocks = torch.zeros((num_blocks, 8, 8), device=self.device, dtype=torch.float32, requires_grad=True)
         optimizer = torch.optim.Adam([skew_blocks], lr=lr)
 
-        for _ in range(steps):
+        for step_idx in range(steps):
             optimizer.zero_grad(set_to_none=True)
             rotation = block_so8_from_skew(skew_blocks, dtype=self.dtype).to(device=self.device, dtype=self.dtype)
             rotated = torch.matmul(unit, rotation.transpose(0, 1))
@@ -181,6 +187,12 @@ class TurboQuantMSE:
                     loss = loss + (rank_weight * F.kl_div(approx_probs.log(), exact_probs, reduction="batchmean"))
             loss.backward()
             optimizer.step()
+            if step_metrics_callback is not None:
+                with torch.no_grad():
+                    current = block_so8_from_skew(skew_blocks.detach(), dtype=self.dtype).to(
+                        device=self.device, dtype=self.dtype
+                    )
+                step_metrics_callback(step_idx, current)
 
         with torch.no_grad():
             fitted = block_so8_from_skew(skew_blocks.detach(), dtype=self.dtype).to(device=self.device, dtype=self.dtype)

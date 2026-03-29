@@ -1,0 +1,37 @@
+[2026-03-29T05:13:46.484759+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T05:13:47.076498+00:00] [triality-eval] failed=replay_or_load_trials error=AssertionError: Torch not compiled with CUDA enabled
+[2026-03-29T05:13:47.077166+00:00] Traceback (most recent call last):
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\scripts\research_validate_k_triality.py", line 477, in main
+    trial_frame, summary_frame = evaluate_triality_proxy_captured(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        kv_root=Path(args.kv_dir),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+        force_fresh=args.force_fresh,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 531, in evaluate_triality_proxy_captured
+    keys = bundle.keys.to(target_device) if target_device is not None else bundle.keys
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\Users\downl\AppData\Roaming\Python\Python314\site-packages\torch\cuda\__init__.py", line 417, in _lazy_init
+    raise AssertionError("Torch not compiled with CUDA enabled")
+AssertionError: Torch not compiled with CUDA enabled
+[2026-03-29T05:13:47.080241+00:00] [triality-eval] failed=replay_or_load_trials error=AssertionError: Torch not compiled with CUDA enabled
+[2026-03-29T05:13:47.081077+00:00] Traceback (most recent call last):
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\scripts\research_validate_k_triality.py", line 477, in main
+    trial_frame, summary_frame = evaluate_triality_proxy_captured(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        kv_root=Path(args.kv_dir),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+        force_fresh=args.force_fresh,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 531, in evaluate_triality_proxy_captured
+    keys = bundle.keys.to(target_device) if target_device is not None else bundle.keys
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "C:\Users\downl\AppData\Roaming\Python\Python314\site-packages\torch\cuda\__init__.py", line 417, in _lazy_init
+    raise AssertionError("Torch not compiled with CUDA enabled")
+AssertionError: Torch not compiled with CUDA enabled

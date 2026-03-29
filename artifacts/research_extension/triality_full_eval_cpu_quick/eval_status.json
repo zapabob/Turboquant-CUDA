@@ -1,0 +1,10 @@
+{
+  "started_at": "2026-03-29T04:43:06.976051+00:00",
+  "updated_at": "2026-03-29T04:43:09.361972+00:00",
+  "current_stage": "replay_or_load_trials",
+  "last_completed_stage": null,
+  "failed_stage": "replay_or_load_trials",
+  "error_type": "ValueError",
+  "error_message": "Expected rotation shape (8, 8), got (256, 256)",
+  "traceback": "Traceback (most recent call last):\n  File \"H:\\Qwen3.5-9B-SOT-Deployment\\hub_Qwen3.5-9B-SOT\\scripts\\research_validate_k_triality.py\", line 477, in main\n    trial_frame, summary_frame = evaluate_triality_proxy_captured(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        kv_root=Path(args.kv_dir),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<7 lines>...\n        force_fresh=args.force_fresh,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"H:\\Qwen3.5-9B-SOT-Deployment\\hub_Qwen3.5-9B-SOT\\turboquant\\research_extension\\k_triality.py\", line 555, in evaluate_triality_proxy_captured\n    row = _evaluate_triality_proxy_mode(\n        dataset=f\"research_captured:{bundle.metadata.prompt_label}\",\n    ...<7 lines>...\n        artifact=artifact,\n    )\n  File \"H:\\Qwen3.5-9B-SOT-Deployment\\hub_Qwen3.5-9B-SOT\\turboquant\\research_extension\\k_triality.py\", line 302, in _evaluate_triality_proxy_mode\n    proxy.set_rotation(artifact.rotation.to(device=device, dtype=keys.dtype))\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"H:\\Qwen3.5-9B-SOT-Deployment\\hub_Qwen3.5-9B-SOT\\turboquant\\research_extension\\triality_proxy.py\", line 164, in set_rotation\n    self.quantizer.mse_quantizer.set_rotation(rotation)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^\n  File \"H:\\Qwen3.5-9B-SOT-Deployment\\hub_Qwen3.5-9B-SOT\\turboquant\\turboquant_mse.py\", line 131, in set_rotation\n    raise ValueError(\n        f\"Expected rotation shape {(self.config.dim, self.config.dim)}, got {tuple(rotation.shape)}\"\n    )\nValueError: Expected rotation shape (8, 8), got (256, 256)\n"
+}

@@ -1,3 +1,5 @@
+.specstory/
+
 .venv/
 .venv-*/
 .pytest_cache/

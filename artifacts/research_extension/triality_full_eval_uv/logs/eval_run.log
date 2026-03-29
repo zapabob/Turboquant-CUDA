@@ -1,0 +1,31 @@
+[2026-03-29T02:12:28.322455+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T02:14:45.844013+00:00] [triality-eval] done=replay_or_load_trials elapsed_s=137.521
+[2026-03-29T02:14:45.854541+00:00] [triality-eval] start=write_csv_md
+[2026-03-29T02:14:46.749988+00:00] [triality-eval] done=write_csv_md elapsed_s=0.904
+[2026-03-29T02:14:46.751982+00:00] [triality-eval] start=plot_generation
+[2026-03-29T02:14:53.727914+00:00] [triality-eval] done=plot_generation elapsed_s=6.976
+[2026-03-29T02:14:53.729923+00:00] [triality-eval] start=finish
+[2026-03-29T02:14:53.732928+00:00] [triality-eval] done=finish elapsed_s=0.002
+[2026-03-29T02:14:53.774502+00:00]                          dataset             mode  ...     ci95_low    ci95_high
+0     research_captured:prompt-a            exact  ...     0.000000     0.000000
+1     research_captured:prompt-a            exact  ...    -0.051270     0.090449
+2     research_captured:prompt-a            exact  ...     1.000000     1.000000
+3     research_captured:prompt-a            exact  ...     0.000000     0.000000
+4     research_captured:prompt-a            exact  ...     0.000000     0.000000
+...                          ...              ...  ...          ...          ...
+1049  research_captured:prompt-b  key_only_random  ...  2816.000000  2816.000000
+1050  research_captured:prompt-b  key_only_random  ...     0.687500     0.687500
+1051  research_captured:prompt-b  key_only_random  ...    -0.012777     0.043402
+1052  research_captured:prompt-b  key_only_random  ...    16.270508    16.270508
+1053  research_captured:prompt-b  key_only_random  ...    -0.018075     0.058160
+
+[1054 rows x 11 columns]
+[2026-03-29T02:14:53.806060+00:00]                      metric                view  ... p_value_holm significant_0_05
+0  hidden_cosine_similarity              vector  ...     0.596085            False
+1  hidden_cosine_similarity   spinor_plus_proxy  ...     0.084065            False
+2  hidden_cosine_similarity  spinor_minus_proxy  ...     0.035115             True
+3             next_logit_kl              vector  ...     1.000000            False
+4             next_logit_kl   spinor_plus_proxy  ...     1.000000            False
+5             next_logit_kl  spinor_minus_proxy  ...     0.406508            False
+
+[6 rows x 13 columns]

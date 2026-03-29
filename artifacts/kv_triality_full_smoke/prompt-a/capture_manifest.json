@@ -1,0 +1,36 @@
+{
+  "capture_id": "prompt-a",
+  "device": "cpu",
+  "dtype": "torch.float32",
+  "git_commit_hash": "deadbeef",
+  "layer_count": 1,
+  "layers": [
+    {
+      "key_file": "layer_00_key.pt",
+      "key_shape": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "layer_index": 0,
+      "value_file": "layer_00_value.pt",
+      "value_shape": [
+        1,
+        2,
+        4,
+        8
+      ]
+    }
+  ],
+  "model_name": "H:\\Qwen3.5-9B-official-hf",
+  "model_source": "H:\\Qwen3.5-9B-official-hf",
+  "package_versions": {
+    "torch": "test"
+  },
+  "prompt_hash": "abc123",
+  "prompt_label": "prompt-a",
+  "prompt_length": 12,
+  "timestamp_utc": "2026-03-27T00:00:00+00:00",
+  "tokenizer_name": "Qwen3.5-9B"
+}

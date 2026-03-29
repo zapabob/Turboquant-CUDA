@@ -8,12 +8,18 @@ from turboquant.research_extension import (
     TrialityProxyMSE,
     TrialityProxyProd,
     apply_triality_proxy_view,
+    bit_setting_sort_key,
     get_triality_proxy_adapters,
     invert_triality_proxy_view,
 )
 from turboquant.turboquant_mse import TurboQuantMSE
 from turboquant.turboquant_prod import TurboQuantProd
 from turboquant.types import TurboQuantMSEConfig, TurboQuantProdConfig
+
+
+def test_bit_setting_sort_key_orders_numeric_labels() -> None:
+    labels = ["8", "2", "2.5", "7", "3.5"]
+    assert sorted(labels, key=bit_setting_sort_key) == ["2", "2.5", "3.5", "7", "8"]
 
 
 def test_triality_proxy_adapters_are_orthogonal_with_positive_determinant() -> None:

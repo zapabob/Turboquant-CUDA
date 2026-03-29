@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import combinations
+import hashlib
+import json
 import math
 import time
+import warnings
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +18,7 @@ from scipy import stats
 import torch
 
 from turboquant.allocation import ChannelBitAllocation
+from turboquant.io_utils import ensure_dir
 from turboquant.analysis import (
     _peak_vram_mb,
     _reset_peak_if_cuda,
@@ -24,6 +31,7 @@ from turboquant.analysis import (
     summarize_trial_metrics,
 )
 from turboquant.attention_metrics import summarize_attention_scores
+from turboquant.rotation import so8_block_diagonal_rotation_metrics
 from turboquant.research_extension.triality_proxy import TRIALITY_PROXY_VIEWS, TrialityProxyProd
 from turboquant.turboquant_prod import TurboQuantProd
 from turboquant.types import TurboQuantProdConfig
@@ -34,6 +42,37 @@ TRIALITY_MODE_BY_VIEW = {
     "spinor_plus_proxy": "key_only_block_so8_triality_plus",
     "spinor_minus_proxy": "key_only_block_so8_triality_minus",
 }
+
+# Subset of evaluate_layer_grid modes replayed alongside triality-proxy rows (paper baselines + static SO8).
+TRIALITY_BASELINE_GRID_MODES: frozenset[str] = frozenset(
+    {
+        "exact",
+        "key_only_random",
+        "key_only_block_so8_static",
+        "key_only_block_so8_learned",
+        "full_kv",
+    }
+)
+
+# Paired multi-group comparison order (random Haar, static SO8, learned SO8, triality views, full-KV).
+ROTATION_COMPARE_MODES: tuple[str, ...] = (
+    "key_only_random",
+    "key_only_block_so8_static",
+    "key_only_block_so8_learned",
+    "key_only_block_so8_triality_vector",
+    "key_only_block_so8_triality_plus",
+    "key_only_block_so8_triality_minus",
+    "full_kv",
+)
+
+
+def bit_setting_sort_key(label: str) -> tuple[int, float]:
+    """Sort key for ``bit_setting`` labels (numeric first, then lexicographic fallback)."""
+
+    try:
+        return (0, float(label))
+    except ValueError:
+        return (1, 0.0)
 
 
 def _canonical_device_name(device: torch.device) -> str:
@@ -81,6 +120,32 @@ def _bundle_groups(kv_root: Path, max_layers: int = 0) -> dict[int, list]:
     return grouped
 
 
+def _rotation_step_trace_callback(
+    rotation_fit_trace: list[dict[str, float | int | str]],
+    *,
+    layer_idx: int,
+    bit_value: float,
+    view: str,
+) -> Callable[[int, torch.Tensor], None]:
+    bit_setting = f"{bit_value:g}"
+
+    def callback(step: int, rotation: torch.Tensor) -> None:
+        ortho, det_err = so8_block_diagonal_rotation_metrics(rotation)
+        rotation_fit_trace.append(
+            {
+                "layer": layer_idx,
+                "bits": float(bit_value),
+                "bit_setting": bit_setting,
+                "view": view,
+                "step": step,
+                "orthogonality_error": ortho,
+                "rotation_determinant_error_max": det_err,
+            }
+        )
+
+    return callback
+
+
 def _stack_training_keys_and_queries(
     bundles: list,
     *,
@@ -105,6 +170,7 @@ def fit_triality_proxy_rotations(
     steps: int = 60,
     lr: float = 5e-2,
     device: str | torch.device = "cpu",
+    rotation_fit_trace: list[dict[str, float | int | str]] | None = None,
 ) -> tuple[list[TrialityRotationArtifact], pd.DataFrame]:
     target_device = torch.device(device)
     device_name = _canonical_device_name(target_device)
@@ -131,7 +197,17 @@ def fit_triality_proxy_rotations(
                     )
                 )
                 proxy = TrialityProxyProd(quantizer=quantizer, view=view)
-                proxy.fit_rotation(keys, queries=queries, steps=steps, lr=lr)
+                step_cb = (
+                    _rotation_step_trace_callback(
+                        rotation_fit_trace,
+                        layer_idx=layer_idx,
+                        bit_value=bit_value,
+                        view=view,
+                    )
+                    if rotation_fit_trace is not None
+                    else None
+                )
+                proxy.fit_rotation(keys, queries=queries, steps=steps, lr=lr, step_metrics_callback=step_cb)
                 encoded = proxy.quantize(keys, allocation=allocation)
                 estimated_logits = proxy.pairwise_estimate(queries, encoded)
                 exact_logits = torch.einsum("...qd,...sd->...qs", queries, keys)
@@ -147,7 +223,7 @@ def fit_triality_proxy_rotations(
                         qjl_seed=qjl_seed,
                     )
                 )
-                ident = rotation.transpose(0, 1) @ rotation
+                ortho_err, det_err_max = so8_block_diagonal_rotation_metrics(rotation)
                 rows.append(
                     {
                         "layer": layer_idx,
@@ -159,7 +235,8 @@ def fit_triality_proxy_rotations(
                         "qjl_seed": qjl_seed,
                         "prompt_count": len(bundles),
                         "token_count": int(keys.shape[-2]),
-                        "orthogonality_error": float((ident - torch.eye(rotation.shape[0])).abs().max().item()),
+                        "orthogonality_error": ortho_err,
+                        "rotation_determinant_error_max": det_err_max,
                         "train_logit_cosine_similarity": metrics["cosine_similarity"],
                         "train_logit_mse": metrics["mse"],
                     }
@@ -235,6 +312,42 @@ def _validate_triality_artifacts(
         preview = ", ".join(f"(layer={layer}, bits={bits:g}, view={view})" for layer, bits, view in missing[:12])
         suffix = "" if len(missing) <= 12 else f" ... and {len(missing) - 12} more"
         raise KeyError(f"Missing triality rotation artifacts: {preview}{suffix}")
+
+
+def _validate_triality_rotation_key_dims(
+    *,
+    bundles_filtered: list,
+    artifacts: dict[tuple[int, float, str], TrialityRotationArtifact],
+    rotation_dir: Path,
+) -> None:
+    """Ensure each loaded rotation is (D, D) with D equal to captured keys' last dimension."""
+
+    if not bundles_filtered:
+        return
+    dims = [int(b.keys.shape[-1]) for b in bundles_filtered]
+    unique_dims = sorted(set(dims))
+    if len(unique_dims) != 1:
+        raise ValueError(
+            "Captured KV bundles use inconsistent key head dimensions (last axis): "
+            f"{unique_dims}. All bundles must share the same D for triality eval."
+        )
+    expected = unique_dims[0]
+    mismatches: list[str] = []
+    for (layer, bits, view), art in sorted(artifacts.items(), key=lambda item: item[0]):
+        shape_tuple = tuple(art.rotation.shape)
+        if shape_tuple != (expected, expected):
+            mismatches.append(
+                f"(layer={layer}, bits={bits:g}, view={view}): rotation {shape_tuple}, need ({expected}, {expected})"
+            )
+    if mismatches:
+        preview = "\n  ".join(mismatches[:12])
+        suffix = f"\n  ... and {len(mismatches) - 12} more" if len(mismatches) > 12 else ""
+        raise ValueError(
+            "Triality rotation matrices under "
+            f"{rotation_dir} do not match captured key head dimension D={expected}. "
+            "Train with scripts/research_train_k_triality.py using the same --kv-dir, or choose a rotation_dir "
+            f"trained on KV with the same head size.\n  {preview}{suffix}"
+        )
 
 
 def _evaluate_triality_proxy_mode(
@@ -322,6 +435,83 @@ def _evaluate_triality_proxy_mode(
     }
 
 
+def _stable_sort_bundles(bundles: list) -> list:
+    return sorted(bundles, key=lambda b: (str(b.capture_dir), int(b.layer_idx)))
+
+
+def _bundle_keys_filtered(bundles_filtered: list) -> list[str]:
+    return [f"{b.capture_dir.as_posix()}:{b.layer_idx}" for b in bundles_filtered]
+
+
+def triality_eval_config_fingerprint(
+    *,
+    kv_root: Path,
+    rotation_dir: Path,
+    trial_count: int,
+    bit_grid: list[float],
+    max_layers: int,
+    eval_device: str | torch.device | None,
+    bundles_filtered: list,
+) -> str:
+    device_str: str | None
+    if eval_device is None:
+        device_str = None
+    else:
+        device_str = str(eval_device)
+    payload = {
+        "baseline_grid_modes": sorted(TRIALITY_BASELINE_GRID_MODES),
+        "bit_grid": bit_grid,
+        "bundle_keys": _bundle_keys_filtered(bundles_filtered),
+        "eval_device": device_str,
+        "kv_root": str(kv_root.resolve()),
+        "max_layers": max_layers,
+        "rotation_dir": str(rotation_dir.resolve()),
+        "trial_count": trial_count,
+    }
+    raw = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _next_triality_position(
+    trial: int, bundle_index: int, *, trial_count: int, n_bundles: int
+) -> tuple[int, int]:
+    if bundle_index + 1 < n_bundles:
+        return trial, bundle_index + 1
+    if trial + 1 < trial_count:
+        return trial + 1, 0
+    return trial_count, 0
+
+
+def _write_triality_partial_csv(path: Path, rows: list[dict[str, float | int | str]]) -> None:
+    ensure_dir(path.parent)
+    tmp = path.with_suffix(path.suffix + ".partial.tmp")
+    pd.DataFrame(rows).to_csv(tmp, index=False)
+    tmp.replace(path)
+
+
+def _save_triality_resume_state(
+    path: Path,
+    *,
+    fingerprint: str,
+    bundle_keys: list[str],
+    next_trial: int,
+    next_bundle_index: int,
+    trial_count: int,
+    n_bundles: int,
+) -> None:
+    ensure_dir(path.parent)
+    payload = {
+        "bundle_keys": bundle_keys,
+        "config_fingerprint": fingerprint,
+        "n_bundles": n_bundles,
+        "next_bundle_index": next_bundle_index,
+        "next_trial": next_trial,
+        "trial_count": trial_count,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def evaluate_triality_proxy_captured(
     *,
     kv_root: Path,
@@ -330,20 +520,95 @@ def evaluate_triality_proxy_captured(
     rotation_dir: Path,
     max_layers: int = 0,
     eval_device: str | torch.device | None = None,
+    metrics_dir: Path | None = None,
+    resume: bool = False,
+    resume_state_path: Path | None = None,
+    partial_csv_path: Path | None = None,
+    force_fresh: bool = False,
+    on_bundle_done: Callable[[], None] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     artifacts = load_triality_proxy_rotations(rotation_dir)
     rows: list[dict[str, float | int | str]] = []
     target_device = torch.device(eval_device) if eval_device is not None else None
-    bundles = load_captured_runs(kv_root)
+    bundles = _stable_sort_bundles(load_captured_runs(kv_root))
+    bundles_filtered = [b for b in bundles if max_layers <= 0 or b.layer_idx < max_layers]
+    n_bundles = len(bundles_filtered)
+    bundle_keys = _bundle_keys_filtered(bundles_filtered)
+    fingerprint = triality_eval_config_fingerprint(
+        kv_root=kv_root,
+        rotation_dir=rotation_dir,
+        trial_count=trial_count,
+        bit_grid=bit_grid,
+        max_layers=max_layers,
+        eval_device=eval_device,
+        bundles_filtered=bundles_filtered,
+    )
+    _validate_triality_rotation_key_dims(
+        bundles_filtered=bundles_filtered,
+        artifacts=artifacts,
+        rotation_dir=rotation_dir,
+    )
     _validate_triality_artifacts(
         bundles=bundles,
         bit_grid=bit_grid,
         artifacts=artifacts,
         max_layers=max_layers,
     )
+
+    partial_path = partial_csv_path
+    state_path = resume_state_path
+    if metrics_dir is not None:
+        ensure_dir(metrics_dir)
+        if partial_path is None:
+            partial_path = metrics_dir / "triality_trials_partial.csv"
+        if state_path is None:
+            state_path = metrics_dir / "eval_resume_state.json"
+
+    start_trial = 0
+    start_bundle = 0
+    resume_effective = bool(resume) and not force_fresh
+    if resume_effective and partial_path is not None and state_path is not None:
+        if not partial_path.exists() or not state_path.exists():
+            warnings.warn(
+                "Resume requested but partial CSV or eval_resume_state.json is missing; starting fresh.",
+                UserWarning,
+                stacklevel=2,
+            )
+        else:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            fp_ok = state.get("config_fingerprint") == fingerprint
+            keys_ok = state.get("bundle_keys") == bundle_keys
+            if not fp_ok:
+                warnings.warn(
+                    "eval_resume_state.json fingerprint mismatch (KV/rotation/trials/bits changed); starting fresh.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            elif not keys_ok:
+                warnings.warn(
+                    "eval_resume_state.json bundle_keys mismatch; starting fresh.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
+                rows = pd.read_csv(partial_path).to_dict("records")
+                start_trial = int(state["next_trial"])
+                start_bundle = int(state["next_bundle_index"])
+    elif resume and not force_fresh and metrics_dir is None:
+        warnings.warn("Resume requested but metrics_dir is unset; starting fresh.", UserWarning, stacklevel=2)
+
+    if start_trial >= trial_count:
+        trial_frame = pd.DataFrame(rows)
+        if trial_frame.empty:
+            raise ValueError(
+                "Triality resume produced no rows "
+                f"(trial_count={trial_count}, n_bundles={n_bundles}, bits={bit_grid})"
+            )
+        return trial_frame, summarize_trial_metrics(trial_frame)
+
     for trial in range(trial_count):
-        for bundle in bundles:
-            if max_layers > 0 and bundle.layer_idx >= max_layers:
+        for b_idx, bundle in enumerate(bundles_filtered):
+            if trial < start_trial or (trial == start_trial and b_idx < start_bundle):
                 continue
             keys = bundle.keys.to(target_device) if target_device is not None else bundle.keys
             values = bundle.values.to(target_device) if target_device is not None else bundle.values
@@ -363,7 +628,7 @@ def evaluate_triality_proxy_captured(
                     bit_grid=bit_grid,
                     eval_device=target_device,
                 )
-                if row["mode"] in {"exact", "key_only_random", "key_only_block_so8_learned", "full_kv"}
+                if row["mode"] in TRIALITY_BASELINE_GRID_MODES
             )
             queries = select_queries(keys, seed=10_000 + (trial * 257) + bundle.layer_idx)
             for bit_value in bit_grid:
@@ -384,14 +649,39 @@ def evaluate_triality_proxy_captured(
                     row["prompt_label"] = bundle.metadata.prompt_label or "unknown"
                     row["prompt_hash"] = bundle.metadata.prompt_hash
                     rows.append(row)
+
+            if partial_path is not None and state_path is not None:
+                next_trial, next_bundle = _next_triality_position(
+                    trial, b_idx, trial_count=trial_count, n_bundles=n_bundles
+                )
+                _write_triality_partial_csv(partial_path, rows)
+                _save_triality_resume_state(
+                    state_path,
+                    fingerprint=fingerprint,
+                    bundle_keys=bundle_keys,
+                    next_trial=next_trial,
+                    next_bundle_index=next_bundle,
+                    trial_count=trial_count,
+                    n_bundles=n_bundles,
+                )
+            if on_bundle_done is not None:
+                on_bundle_done()
+
     trial_frame = pd.DataFrame(rows)
     if trial_frame.empty:
-        included_bundles = [bundle for bundle in bundles if max_layers <= 0 or bundle.layer_idx < max_layers]
         raise ValueError(
             "Triality replay produced no rows "
-            f"(bundles={len(included_bundles)}, bits={bit_grid}, max_layers={max_layers}, artifacts={len(artifacts)})"
+            f"(bundles={n_bundles}, bits={bit_grid}, max_layers={max_layers}, artifacts={len(artifacts)})"
         )
     return trial_frame, summarize_trial_metrics(trial_frame)
+
+
+def triality_pairing_columns(trial_frame: pd.DataFrame) -> list[str]:
+    pair_columns = ["dataset", "trial", "layer", "bit_setting", "bits"]
+    for optional in ("capture_id", "prompt_label", "prompt_hash"):
+        if optional in trial_frame.columns:
+            pair_columns.append(optional)
+    return pair_columns
 
 
 def holm_bonferroni(p_values: list[float]) -> list[float]:
@@ -406,6 +696,134 @@ def holm_bonferroni(p_values: list[float]) -> list[float]:
     return adjusted
 
 
+def compute_friedman_rotation_mode_statistics(
+    trial_frame: pd.DataFrame,
+    *,
+    modes: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
+    """Friedman test on paired blocks (same trial/layer/capture/bit) across rotation modes."""
+    if trial_frame.empty:
+        return pd.DataFrame()
+    mode_order = modes or ROTATION_COMPARE_MODES
+    pair_columns = triality_pairing_columns(trial_frame)
+    metrics = ("hidden_cosine_similarity", "next_logit_kl")
+    rows_out: list[dict[str, float | int | str]] = []
+    bit_settings = sorted(
+        {str(x) for x in trial_frame["bit_setting"].unique()} - {"exact"},
+        key=bit_setting_sort_key,
+    )
+    for metric in metrics:
+        for bit_setting in bit_settings:
+            sub = trial_frame.loc[
+                (trial_frame["mode"].isin(mode_order))
+                & (trial_frame["bit_setting"].astype(str) == str(bit_setting))
+            ]
+            if sub.empty:
+                continue
+            blocks: list[list[float]] = []
+            grouped = sub.groupby(pair_columns, dropna=False, sort=True)
+            for _, group in grouped:
+                if len(group) != len(mode_order) or group["mode"].astype(str).nunique() != len(mode_order):
+                    continue
+                mode_to_val = {str(row["mode"]): float(row[metric]) for _, row in group.iterrows()}
+                if all(m in mode_to_val for m in mode_order):
+                    blocks.append([float(mode_to_val[m]) for m in mode_order])
+            if len(blocks) < 2:
+                continue
+            k = len(mode_order)
+            n_b = len(blocks)
+            columns = [[blocks[r][c] for r in range(n_b)] for c in range(k)]
+            try:
+                result = stats.friedmanchisquare(*columns)
+                statistic = float(result.statistic)
+                p_value = float(result.pvalue)
+            except ValueError:
+                statistic = float("nan")
+                p_value = 1.0
+            rows_out.append(
+                {
+                    "metric": metric,
+                    "bit_setting": bit_setting,
+                    "test": "friedman",
+                    "n_blocks": n_b,
+                    "n_modes": k,
+                    "statistic": statistic,
+                    "p_value": p_value,
+                    "modes": ",".join(mode_order),
+                }
+            )
+    return pd.DataFrame(rows_out)
+
+
+def compute_pairwise_wilcoxon_rotation_modes(
+    trial_frame: pd.DataFrame,
+    *,
+    modes: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
+    """Pairwise two-sided Wilcoxon signed-rank on paired blocks; Holm adjustment within each metric x bit_setting."""
+    if trial_frame.empty:
+        return pd.DataFrame()
+    mode_order = modes or ROTATION_COMPARE_MODES
+    pair_columns = triality_pairing_columns(trial_frame)
+    metrics = ("hidden_cosine_similarity", "next_logit_kl")
+    rows: list[dict[str, float | int | str | bool]] = []
+    bit_settings = sorted(
+        {str(x) for x in trial_frame["bit_setting"].unique()} - {"exact"},
+        key=bit_setting_sort_key,
+    )
+    for metric in metrics:
+        for bit_setting in bit_settings:
+            block_rows: list[dict[str, float | int | str | bool]] = []
+            for mode_a, mode_b in combinations(mode_order, 2):
+                left = trial_frame.loc[
+                    (trial_frame["mode"] == mode_a) & (trial_frame["bit_setting"].astype(str) == str(bit_setting))
+                ][pair_columns + [metric]].rename(columns={metric: "a"})
+                right = trial_frame.loc[
+                    (trial_frame["mode"] == mode_b) & (trial_frame["bit_setting"].astype(str) == str(bit_setting))
+                ][pair_columns + [metric]].rename(columns={metric: "b"})
+                paired = left.merge(right, on=pair_columns, how="inner")
+                if len(paired) < 3:
+                    continue
+                try:
+                    result = stats.wilcoxon(
+                        paired["a"],
+                        paired["b"],
+                        alternative="two-sided",
+                        zero_method="wilcox",
+                        correction=False,
+                        method="auto",
+                    )
+                    statistic = float(result.statistic)
+                    p_value = float(result.pvalue)
+                except ValueError:
+                    statistic = 0.0
+                    p_value = 1.0
+                block_rows.append(
+                    {
+                        "metric": metric,
+                        "bit_setting": bit_setting,
+                        "mode_a": mode_a,
+                        "mode_b": mode_b,
+                        "test": "wilcoxon",
+                        "alternative": "two-sided",
+                        "n_pairs": int(len(paired)),
+                        "statistic": statistic,
+                        "p_value": p_value,
+                        "mean_a": float(paired["a"].mean()),
+                        "mean_b": float(paired["b"].mean()),
+                    }
+                )
+            if not block_rows:
+                continue
+            p_values = [float(r["p_value"]) for r in block_rows]
+            adjusted = holm_bonferroni(p_values)
+            for row, adj_p in zip(block_rows, adjusted, strict=True):
+                row["p_value_holm"] = adj_p
+                row["significant_0_05"] = adj_p < 0.05
+            rows.extend(block_rows)
+    return pd.DataFrame(rows)
+
+
 def compute_triality_statistics(trial_frame: pd.DataFrame) -> pd.DataFrame:
     if trial_frame.empty:
         raise ValueError("compute_triality_statistics received an empty trial_frame")
@@ -413,10 +831,7 @@ def compute_triality_statistics(trial_frame: pd.DataFrame) -> pd.DataFrame:
     missing_columns = sorted(required_columns.difference(trial_frame.columns))
     if missing_columns:
         raise ValueError(f"trial_frame is missing required columns: {missing_columns}")
-    pair_columns = ["dataset", "trial", "layer", "bit_setting", "bits"]
-    for optional in ("capture_id", "prompt_label", "prompt_hash"):
-        if optional in trial_frame.columns:
-            pair_columns.append(optional)
+    pair_columns = triality_pairing_columns(trial_frame)
     metrics = (
         ("hidden_cosine_similarity", "greater"),
         ("next_logit_kl", "less"),

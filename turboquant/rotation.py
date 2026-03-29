@@ -67,6 +67,38 @@ def block_so8_from_skew(skew_blocks: torch.Tensor, dtype: torch.dtype) -> torch.
     return torch.block_diag(*blocks)
 
 
+def so8_block_diagonal_rotation_metrics(
+    rotation: torch.Tensor,
+    *,
+    block_size: int = 8,
+) -> tuple[float, float]:
+    """Aggregate orthogonality and SO(block_size) determinant drift for a block-diagonal rotation.
+
+    Expects a square matrix whose diagonal ``block_size``×``block_size`` blocks are the SO factors
+    (as produced by :func:`block_so8_from_skew` / :func:`block_so8_rotation`).
+
+    Returns:
+        orthogonality_error: max absolute entry of ``R^T R - I`` (float64 accumulation).
+        determinant_error_max: ``max_i |det(B_i) - 1|`` over diagonal blocks ``B_i``.
+    """
+
+    if rotation.ndim != 2 or rotation.shape[0] != rotation.shape[1]:
+        raise ValueError(f"Expected square 2D rotation, got {tuple(rotation.shape)}")
+    dim = int(rotation.shape[0])
+    if dim % block_size != 0:
+        raise ValueError(f"dim={dim} must be divisible by block_size={block_size}")
+    r64 = rotation.to(dtype=torch.float64)
+    ident = torch.eye(dim, dtype=torch.float64, device=r64.device)
+    ortho_err = float((r64.transpose(0, 1) @ r64 - ident).abs().max().item())
+    n_blocks = dim // block_size
+    det_err_max = 0.0
+    for block_idx in range(n_blocks):
+        sl = slice(block_idx * block_size, (block_idx + 1) * block_size)
+        block = r64[sl, sl]
+        det_err_max = max(det_err_max, abs(float(torch.linalg.det(block).item()) - 1.0))
+    return ortho_err, det_err_max
+
+
 def rotation_from_policy(
     *,
     dim: int,

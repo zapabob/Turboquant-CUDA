@@ -1,0 +1,10 @@
+{
+  "started_at": "2026-03-28T15:25:42.077484+00:00",
+  "updated_at": "2026-03-28T18:22:06.320516+00:00",
+  "current_stage": "replay_or_load_trials",
+  "last_completed_stage": "replay_or_load_trials",
+  "failed_stage": "replay_or_load_trials",
+  "error_type": "OSError",
+  "error_message": "[Errno 22] Invalid argument",
+  "traceback": "Traceback (most recent call last):\n  File \"H:\\Qwen3.5-9B-SOT-Deployment\\hub_Qwen3.5-9B-SOT\\scripts\\research_validate_k_triality.py\", line 323, in main\n    checkpoint.complete(\"replay_or_load_trials\")\n  File \"H:\\Qwen3.5-9B-SOT-Deployment\\hub_Qwen3.5-9B-SOT\\scripts\\research_validate_k_triality.py\", line 82, in complete\n    print(f\"[triality-eval] done={stage} elapsed_s={elapsed:.3f}\", flush=True)\nOSError: [Errno 22] Invalid argument\n"
+}

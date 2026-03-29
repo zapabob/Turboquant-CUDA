@@ -1,0 +1,118 @@
+[2026-03-29T04:38:58.721107+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T04:39:10.837839+00:00] [triality-eval] failed=replay_or_load_trials error=ValueError: Expected rotation shape (8, 8), got (256, 256)
+[2026-03-29T04:39:10.838368+00:00] Traceback (most recent call last):
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\scripts\research_validate_k_triality.py", line 477, in main
+    trial_frame, summary_frame = evaluate_triality_proxy_captured(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        kv_root=Path(args.kv_dir),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+        force_fresh=args.force_fresh,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 555, in evaluate_triality_proxy_captured
+    row = _evaluate_triality_proxy_mode(
+        dataset=f"research_captured:{bundle.metadata.prompt_label}",
+    ...<7 lines>...
+        artifact=artifact,
+    )
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 302, in _evaluate_triality_proxy_mode
+    proxy.set_rotation(artifact.rotation.to(device=device, dtype=keys.dtype))
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\triality_proxy.py", line 164, in set_rotation
+    self.quantizer.mse_quantizer.set_rotation(rotation)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\turboquant_mse.py", line 131, in set_rotation
+    raise ValueError(
+        f"Expected rotation shape {(self.config.dim, self.config.dim)}, got {tuple(rotation.shape)}"
+    )
+ValueError: Expected rotation shape (8, 8), got (256, 256)
+[2026-03-29T04:39:10.839361+00:00] [triality-eval] failed=replay_or_load_trials error=ValueError: Expected rotation shape (8, 8), got (256, 256)
+[2026-03-29T04:39:10.840415+00:00] Traceback (most recent call last):
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\scripts\research_validate_k_triality.py", line 477, in main
+    trial_frame, summary_frame = evaluate_triality_proxy_captured(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        kv_root=Path(args.kv_dir),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+        force_fresh=args.force_fresh,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 555, in evaluate_triality_proxy_captured
+    row = _evaluate_triality_proxy_mode(
+        dataset=f"research_captured:{bundle.metadata.prompt_label}",
+    ...<7 lines>...
+        artifact=artifact,
+    )
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 302, in _evaluate_triality_proxy_mode
+    proxy.set_rotation(artifact.rotation.to(device=device, dtype=keys.dtype))
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\triality_proxy.py", line 164, in set_rotation
+    self.quantizer.mse_quantizer.set_rotation(rotation)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\turboquant_mse.py", line 131, in set_rotation
+    raise ValueError(
+        f"Expected rotation shape {(self.config.dim, self.config.dim)}, got {tuple(rotation.shape)}"
+    )
+ValueError: Expected rotation shape (8, 8), got (256, 256)
+[2026-03-29T04:43:07.065953+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T04:43:09.398916+00:00] [triality-eval] failed=replay_or_load_trials error=ValueError: Expected rotation shape (8, 8), got (256, 256)
+[2026-03-29T04:43:09.400149+00:00] Traceback (most recent call last):
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\scripts\research_validate_k_triality.py", line 477, in main
+    trial_frame, summary_frame = evaluate_triality_proxy_captured(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        kv_root=Path(args.kv_dir),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+        force_fresh=args.force_fresh,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 555, in evaluate_triality_proxy_captured
+    row = _evaluate_triality_proxy_mode(
+        dataset=f"research_captured:{bundle.metadata.prompt_label}",
+    ...<7 lines>...
+        artifact=artifact,
+    )
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 302, in _evaluate_triality_proxy_mode
+    proxy.set_rotation(artifact.rotation.to(device=device, dtype=keys.dtype))
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\triality_proxy.py", line 164, in set_rotation
+    self.quantizer.mse_quantizer.set_rotation(rotation)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\turboquant_mse.py", line 131, in set_rotation
+    raise ValueError(
+        f"Expected rotation shape {(self.config.dim, self.config.dim)}, got {tuple(rotation.shape)}"
+    )
+ValueError: Expected rotation shape (8, 8), got (256, 256)
+[2026-03-29T04:43:09.401343+00:00] [triality-eval] failed=replay_or_load_trials error=ValueError: Expected rotation shape (8, 8), got (256, 256)
+[2026-03-29T04:43:09.402494+00:00] Traceback (most recent call last):
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\scripts\research_validate_k_triality.py", line 477, in main
+    trial_frame, summary_frame = evaluate_triality_proxy_captured(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        kv_root=Path(args.kv_dir),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+        force_fresh=args.force_fresh,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 555, in evaluate_triality_proxy_captured
+    row = _evaluate_triality_proxy_mode(
+        dataset=f"research_captured:{bundle.metadata.prompt_label}",
+    ...<7 lines>...
+        artifact=artifact,
+    )
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\k_triality.py", line 302, in _evaluate_triality_proxy_mode
+    proxy.set_rotation(artifact.rotation.to(device=device, dtype=keys.dtype))
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\research_extension\triality_proxy.py", line 164, in set_rotation
+    self.quantizer.mse_quantizer.set_rotation(rotation)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\turboquant\turboquant_mse.py", line 131, in set_rotation
+    raise ValueError(
+        f"Expected rotation shape {(self.config.dim, self.config.dim)}, got {tuple(rotation.shape)}"
+    )
+ValueError: Expected rotation shape (8, 8), got (256, 256)

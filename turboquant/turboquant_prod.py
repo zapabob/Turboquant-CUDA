@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import torch
 
 from turboquant.allocation import ChannelBitAllocation
@@ -88,5 +90,12 @@ class TurboQuantProd:
         queries: torch.Tensor | None = None,
         steps: int = 60,
         lr: float = 5e-2,
+        step_metrics_callback: Callable[[int, torch.Tensor], None] | None = None,
     ) -> torch.Tensor:
-        return self.mse_quantizer.fit_rotation(x=x, queries=queries, steps=steps, lr=lr)
+        return self.mse_quantizer.fit_rotation(
+            x=x,
+            queries=queries,
+            steps=steps,
+            lr=lr,
+            step_metrics_callback=step_metrics_callback,
+        )

@@ -59,6 +59,29 @@ This repository emits two config families.
   Research / future Hypura-GGUF sidecar schema.  
   研究用、および将来の Hypura / GGUF sidecar 用 schema です。
 
+## Environment (Python, CUDA, uv) / 実行環境
+
+- **Python**: This project supports **3.12.x only** (`requires-python = ">=3.12,<3.13"` in [`pyproject.toml`](pyproject.toml)).  
+  **Python**: **3.12.x のみ**（[`pyproject.toml`](pyproject.toml) の `requires-python`）。
+
+- **CUDA PyTorch**: Use **`uv sync --extra cu128`** so `torch` resolves from the `pytorch-cu128` index under `[tool.uv.sources]` / `[[tool.uv.index]]` in [`pyproject.toml`](pyproject.toml). Without that extra, you often get a CPU wheel and `torch.cuda.is_available()` stays `False`.  
+  **CUDA 版 PyTorch**: **`uv sync --extra cu128`**。`pyproject.toml` の `tool.uv.sources` が `pytorch-cu128` を指す。付けないと CPU 版になりやすい。
+
+- **Do not run project scripts with a global `py -3`** (for example Python 3.14): that interpreter is outside the supported range and usually carries a mismatched `torch`. Always **`cd` into `hub_Qwen3.5-9B-SOT` and use `uv run python ...`**.  
+  **グローバルな `py -3` で直接実行しない**（例: 3.14 は範囲外）。**`hub_Qwen3.5-9B-SOT` で `uv run python ...`** を使う。
+
+- **Working directory**: `pyproject.toml` and `scripts\` live **inside `hub_Qwen3.5-9B-SOT`**. Running `uv sync` or `uv run python scripts\...` from a parent folder (e.g. `Qwen3.5-9B-SOT-Deployment`) fails with “No pyproject.toml” or “can't open file …\scripts\…”. Either **`Set-Location hub_Qwen3.5-9B-SOT`** first, or from the parent use **`uv sync --project hub_Qwen3.5-9B-SOT`** and **`uv run --project hub_Qwen3.5-9B-SOT python scripts\...`**.  
+  **作業ディレクトリ**: `pyproject.toml` と `scripts\` は **`hub_Qwen3.5-9B-SOT` 配下**のみ。親フォルダで `uv` するとエラーになる。**`cd` するか `uv --project hub_Qwen3.5-9B-SOT`** を使う。
+
+- **GPU driver**: Use an NVIDIA driver compatible with the CUDA 12.8 stack shipped with PyTorch cu128 wheels; verify with `nvidia-smi`.  
+  **GPU ドライバ**: cu128 ホイールに合う NVIDIA ドライバ。`nvidia-smi` で確認。
+
+If `uv` is not installed yet: / `uv` 未導入なら:
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
 ## Quick Start / クイックスタート
 
 ```powershell
@@ -73,6 +96,25 @@ uv run python scripts\research_validate_v_codecs.py --query-source synthetic --t
 uv run python scripts\research_value_sensitivity.py --trials 3 --synthetic-layers 4
 ```
 
+### Verification / 動作確認
+
+```powershell
+uv run python scripts\env_check.py
+uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
+```
+
+When CUDA is set up correctly, `env_check` should report `cuda_available: True` and `target_cuda_match: True`.  
+正常時は `env_check` に `cuda_available: True` と `target_cuda_match: True` が出る。
+
+### Alternative bootstrap / 代替セットアップ
+
+```powershell
+.\scripts\bootstrap_uv.ps1 -PythonVersion 3.12.9 -TorchExtra cu128
+```
+
+If you also need the Qwen adapter, run `uv sync --extra cu128 --extra dev --extra hf_qwen` afterward.  
+Qwen 用なら続けて `uv sync --extra cu128 --extra dev --extra hf_qwen`。
+
 To enable the Qwen adapter as well:  
 Qwen adapter も使う場合は次です。
 
@@ -81,6 +123,34 @@ uv sync --extra cu128 --extra dev --extra hf_qwen
 uv run python scripts\capture_qwen_kv.py --weight-load 4bit --max-length 96
 uv run python scripts\paper_validate_captured_qwen.py --kv-dir artifacts\kv --bits 2,2.5,3,3.5,4 --write-config
 uv run python scripts\research_validate_v_codecs.py --query-source captured --kv-dir artifacts\kv --trials 1 --max-layers 1 --bits 2,2.5,3.5,4 --write-config
+```
+
+### Triality pipeline (captured KV) / Triality（キャプチャ KV）
+
+[`scripts/run_triality_full_pipeline.py`](scripts/run_triality_full_pipeline.py) runs **train-then-eval** on the same `--kv-dir` (defaults under `artifacts/research_extension/`). Arguments after `--` are forwarded to `research_validate_k_triality.py` (for example `--resume`).
+
+```powershell
+$env:PYTHONUNBUFFERED = "1"
+uv run python scripts\run_triality_full_pipeline.py --kv-dir artifacts\kv
+```
+
+Example with eval-only extras: / 評価側にだけオプションを渡す例:
+
+```powershell
+uv run python scripts\run_triality_full_pipeline.py --kv-dir artifacts\kv -- --resume
+```
+
+**Production / 本番（学習済み回転だけ評価）**: For real captured KV and trained rotations, **only replace `--kv-dir` and `--rotation-dir`** with your capture root (where `capture_manifest.json` lives, or the parent of multiple prompt captures) and your training output `rotations/` (from `research_train_k_triality.py`). **`--output-dir` may stay as below or any other directory name** you prefer. Always use `uv run` from this repo root.
+
+本番データでは **`--kv-dir` と `--rotation-dir` だけ**を、あなたのキャプチャルートと学習出力の `rotations` に差し替えればよい。**`--output-dir` は例のままでも別名でも可**。
+
+```powershell
+$env:PYTHONUNBUFFERED = "1"
+uv run python scripts\research_validate_k_triality.py `
+  --kv-dir "D:\path\to\captured\kv_root" `
+  --rotation-dir "D:\path\to\train_output\rotations" `
+  --eval-device cuda `
+  --output-dir artifacts\research_extension\triality_full_eval
 ```
 
 ## Main Entry Points / 主なエントリポイント
@@ -95,6 +165,9 @@ uv run python scripts\research_validate_v_codecs.py --query-source captured --kv
 
 - `scripts\research_validate_v_codecs.py`
 - `scripts\research_value_sensitivity.py`
+- `scripts\run_triality_full_pipeline.py` (triality proxy: train rotations + validate on captured KV / 同一 KV で学習→評価)
+- `scripts\research_train_k_triality.py`
+- `scripts\research_validate_k_triality.py`
 
 ### HF/Qwen Adapter / HF・Qwen adapter
 

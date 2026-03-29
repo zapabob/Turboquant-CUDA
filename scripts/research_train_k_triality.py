@@ -4,6 +4,8 @@ import argparse
 from pathlib import Path
 import sys
 
+import pandas as pd
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -32,6 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=str(ARTIFACT_ROOT))
     parser.add_argument("--write-config", action="store_true")
     parser.add_argument("--config-out", default=None)
+    parser.add_argument(
+        "--log-rotation-fit-trace",
+        action="store_true",
+        help="Append per-optimizer-step orthogonality and SO(8) block det error to metrics/triality_rotation_fit_trace.csv",
+    )
     return parser.parse_args()
 
 
@@ -42,6 +49,7 @@ def main() -> int:
     metrics_dir = ensure_dir(output_dir / "metrics")
     rotation_dir = ensure_dir(output_dir / "rotations")
 
+    rotation_fit_trace: list[dict[str, float | int | str]] | None = [] if args.log_rotation_fit_trace else None
     artifacts, training_summary = fit_triality_proxy_rotations(
         kv_root=Path(args.kv_dir),
         bit_grid=bit_grid,
@@ -49,9 +57,12 @@ def main() -> int:
         steps=args.steps,
         lr=args.lr,
         device=args.device,
+        rotation_fit_trace=rotation_fit_trace,
     )
     rotation_manifest = save_triality_proxy_rotations(artifacts, rotation_dir)
     training_summary.to_csv(metrics_dir / "triality_training_summary.csv", index=False)
+    if rotation_fit_trace is not None:
+        pd.DataFrame(rotation_fit_trace).to_csv(metrics_dir / "triality_rotation_fit_trace.csv", index=False)
     rotation_manifest.to_csv(metrics_dir / "triality_rotation_manifest.csv", index=False)
 
     if args.write_config:

@@ -1,0 +1,7 @@
+metric,view,mode,test,alternative,n_pairs,statistic,p_value,candidate_mean,baseline_mean,delta_candidate_minus_baseline,p_value_holm,significant_0_05
+hidden_cosine_similarity,vector,key_only_block_so8_triality_vector,wilcoxon,greater,30,221.0,0.5960847921669483,0.9911762595176696,0.9876201232274373,0.0035561362902323257,0.5960847921669483,False
+hidden_cosine_similarity,spinor_plus_proxy,key_only_block_so8_triality_plus,wilcoxon,greater,30,317.0,0.04203273914754391,0.9952947537104289,0.9876201232274373,0.007674630482991551,0.08406547829508781,False
+hidden_cosine_similarity,spinor_minus_proxy,key_only_block_so8_triality_minus,wilcoxon,greater,30,342.0,0.011705071665346622,0.9956208725770315,0.9876201232274373,0.00800074934959416,0.03511521499603987,True
+next_logit_kl,vector,key_only_block_so8_triality_vector,wilcoxon,less,30,237.0,0.5403517363592982,0.4405553264543414,0.4061951408628374,0.034360185591504,1.0,False
+next_logit_kl,spinor_plus_proxy,key_only_block_so8_triality_plus,wilcoxon,less,30,269.0,0.7739178286865354,0.23234109071393808,0.4061951408628374,-0.17385405014889935,1.0,False
+next_logit_kl,spinor_minus_proxy,key_only_block_so8_triality_minus,wilcoxon,less,30,178.0,0.13550281431525946,0.17166617289185523,0.4061951408628374,-0.2345289679709822,0.40650844294577837,False
