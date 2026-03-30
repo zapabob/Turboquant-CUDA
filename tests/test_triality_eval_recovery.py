@@ -13,8 +13,11 @@ import torch
 from tests.test_capture import build_capture_dir
 from turboquant.research_extension.k_triality import (
     TRIALITY_PROXY_VIEWS,
+    _bundle_keys_filtered,
+    _stable_sort_bundles,
     compute_triality_statistics,
     evaluate_triality_proxy_captured,
+    load_captured_runs,
     load_triality_proxy_rotations,
 )
 
@@ -115,6 +118,18 @@ def test_evaluate_triality_rejects_rotation_head_dim_mismatch(tmp_path: Path) ->
             max_layers=0,
             eval_device="cpu",
         )
+
+
+def test_bundle_keys_match_for_relative_and_absolute_kv_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resume state must not depend on whether --kv-dir was passed relative or absolute."""
+    monkeypatch.chdir(tmp_path)
+    cap = tmp_path / "kv_captures"
+    build_capture_dir(cap, "prompt-a")
+    rel_bundles = _stable_sort_bundles(load_captured_runs(Path("kv_captures")))
+    abs_bundles = _stable_sort_bundles(load_captured_runs(cap.resolve()))
+    assert _bundle_keys_filtered(rel_bundles) == _bundle_keys_filtered(abs_bundles)
+    assert all(":" in k for k in _bundle_keys_filtered(rel_bundles))
+    assert str(tmp_path).replace("\\", "/") in _bundle_keys_filtered(rel_bundles)[0]
 
 
 def test_evaluate_triality_writes_partial_after_first_bundle(tmp_path: Path) -> None:
@@ -236,7 +251,8 @@ def test_compute_triality_statistics_rejects_empty_frame() -> None:
 
 def test_summarize_from_trials_reconstructs_summary_and_stats() -> None:
     rows = []
-    for trial in (0, 1):
+    # Three trials so compute_pairwise_wilcoxon_rotation_modes gets len(paired) >= 3 per mode pair.
+    for trial in (0, 1, 2):
         for mode, hidden, kl in (
             ("key_only_block_so8_learned", 0.90, 0.10),
             ("key_only_block_so8_triality_vector", 0.91, 0.09),

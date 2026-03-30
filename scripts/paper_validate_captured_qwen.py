@@ -98,7 +98,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kv-dir", default="artifacts/kv")
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--max-layers", type=int, default=0)
-    parser.add_argument("--bits", default="2,2.5,3,3.5,4")
+    parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
     parser.add_argument("--output-dir", default=str(ARTIFACT_ROOT))
     parser.add_argument("--write-config", action="store_true")
     parser.add_argument("--config-out", default=None)

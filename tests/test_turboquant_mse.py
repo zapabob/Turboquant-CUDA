@@ -21,6 +21,19 @@ def test_turboquant_mse_reduces_error_with_more_bits() -> None:
     assert errors[0] > errors[1] > errors[2]
 
 
+def test_turboquant_mse_eight_bit_roundtrip_finite_small_dim() -> None:
+    """Smoke: 8-bit Lloyd–Max path; use small dim to keep test fast."""
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(42)
+    dim = 32
+    x = torch.randn((8, dim), generator=generator, dtype=torch.float32)
+    x = x / torch.linalg.vector_norm(x, dim=-1, keepdim=True)
+    quantizer = TurboQuantMSE(TurboQuantMSEConfig(dim=dim, bits=8, device="cpu", dtype="float32"))
+    recon = quantizer.dequantize(quantizer.quantize(x))
+    assert torch.isfinite(recon).all()
+    assert recon.shape == x.shape
+
+
 def test_fit_rotation_step_metrics_callback_once_per_step() -> None:
     steps = 4
     seen: list[int] = []

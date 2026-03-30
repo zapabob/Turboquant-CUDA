@@ -26,7 +26,7 @@ ARTIFACT_ROOT = Path("artifacts") / "research_extension" / "triality_k_only"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train K-only triality proxy block-SO(8) rotations on captured KV.")
     parser.add_argument("--kv-dir", default="artifacts/kv")
-    parser.add_argument("--bits", default="2,2.5,3,3.5,4")
+    parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
     parser.add_argument("--max-layers", type=int, default=0)
     parser.add_argument("--steps", type=int, default=60)
     parser.add_argument("--lr", type=float, default=5e-2)

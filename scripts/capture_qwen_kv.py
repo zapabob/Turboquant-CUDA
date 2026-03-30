@@ -62,6 +62,8 @@ def build_model_kwargs(args: argparse.Namespace) -> dict[str, object]:
         model_kwargs["device_map"] = "auto"
     else:
         model_kwargs["torch_dtype"] = getattr(torch, args.dtype)
+        # Full weights without bitsandbytes: accelerate device_map (no quantization).
+        model_kwargs["device_map"] = "auto"
     return model_kwargs
 
 

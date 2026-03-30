@@ -98,7 +98,7 @@ def replay_rows(dim: int, seq_len: int, heads: int, trial: int) -> pd.DataFrame:
         values=values,
         trial=trial,
         layer_idx=0,
-        bit_grid=[2.0, 2.5, 3.0, 3.5, 4.0],
+        bit_grid=[2.0, 2.5, 3.0, 3.5, 4.0, 8.0],
     )
     return pd.DataFrame(rows)
 

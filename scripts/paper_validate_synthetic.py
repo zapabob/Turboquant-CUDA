@@ -45,7 +45,7 @@ def sample_unit_vectors(num_vectors: int, dim: int, seed: int) -> torch.Tensor:
 def mse_rows(dim: int, num_vectors: int, trial: int) -> list[dict[str, float | int | str]]:
     rows: list[dict[str, float | int | str]] = []
     x = sample_unit_vectors(num_vectors=num_vectors, dim=dim, seed=1_000 + trial)
-    for bits in (2, 3, 4):
+    for bits in (2, 3, 4, 8):
         quantizer = PaperTurboQuantMSE(PaperMSEConfig(dim=dim, bits=bits, device="cpu", dtype="float32"))
         encoded = quantizer.quantize(x)
         reconstruction = quantizer.dequantize(encoded)
@@ -67,7 +67,7 @@ def prod_rows(dim: int, num_pairs: int, trial: int) -> list[dict[str, float | in
     x = sample_unit_vectors(num_vectors=num_pairs, dim=dim, seed=2_000 + trial)
     y = sample_unit_vectors(num_vectors=num_pairs, dim=dim, seed=3_000 + trial)
     exact = (x * y).sum(dim=-1)
-    for bits in (2, 3, 4):
+    for bits in (2, 3, 4, 8):
         quantizer = PaperTurboQuantProd(PaperProdConfig(dim=dim, bits_total=bits, device="cpu", dtype="float32"))
         encoded = quantizer.quantize(x)
         error = quantizer.estimate_inner_product(y, encoded) - exact

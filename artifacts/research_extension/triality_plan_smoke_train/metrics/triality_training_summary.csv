@@ -1,0 +1,7 @@
+layer,bits,bit_setting,view,mode,rotation_seed,qjl_seed,prompt_count,token_count,orthogonality_error,rotation_determinant_error_max,train_logit_cosine_similarity,train_logit_mse
+0,2.0,2,vector,key_only_block_so8_triality_vector,70217,70271,4,73,0.004621472209692001,0.004448401480366071,1.0,406.0
+0,2.0,2,spinor_plus_proxy,key_only_block_so8_triality_plus,70474,70528,4,73,0.0047792792320251465,0.0054701447981941875,0.9921875,368.0
+0,2.0,2,spinor_minus_proxy,key_only_block_so8_triality_minus,70731,70785,4,73,0.005213260650634766,0.00680097823016057,0.9921875,424.0
+0,3.0,3,vector,key_only_block_so8_triality_vector,70317,70371,4,73,0.004658162593841553,0.006082991730581244,1.0,183.0
+0,3.0,3,spinor_plus_proxy,key_only_block_so8_triality_plus,70574,70628,4,73,0.004276122897863388,0.005867670155392579,1.0,170.0
+0,3.0,3,spinor_minus_proxy,key_only_block_so8_triality_minus,70831,70885,4,73,0.004452109336853027,0.005511084275700462,0.9921875,183.0

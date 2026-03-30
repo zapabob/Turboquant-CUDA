@@ -1,0 +1,14 @@
+{
+  "bundle_keys": [
+    "H:/Qwen3.5-9B-SOT-Deployment/hub_Qwen3.5-9B-SOT/artifacts/kv/coding-ca766984:0",
+    "H:/Qwen3.5-9B-SOT-Deployment/hub_Qwen3.5-9B-SOT/artifacts/kv/explain-359133ba:0",
+    "H:/Qwen3.5-9B-SOT-Deployment/hub_Qwen3.5-9B-SOT/artifacts/kv/reasoning-30ae1199:0",
+    "H:/Qwen3.5-9B-SOT-Deployment/hub_Qwen3.5-9B-SOT/artifacts/kv/summary-42f56222:0"
+  ],
+  "config_fingerprint": "61fa3f7364e2f4c5c68a0f40e670bd10b37b14f57c2583f18c0a77d0ce81cd65",
+  "n_bundles": 4,
+  "next_bundle_index": 0,
+  "next_trial": 1,
+  "trial_count": 1,
+  "updated_at": "2026-03-29T08:13:56.223266+00:00"
+}

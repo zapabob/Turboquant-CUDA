@@ -1,93 +1,62 @@
-# Turboquant-CUDA
+# TurboQuant CUDA（Qwen3.5-9B）
 
-PyTorch-first TurboQuant paper reproduction, rebuttal-oriented Qwen3.5-9B evaluation, and K/V-separated research extensions.  
-PyTorch を正系にした TurboQuant 論文再現、Qwen3.5-9B による反論志向の評価、そして K/V 分離の研究拡張をまとめたリポジトリです。
+PyTorch 正系の TurboQuant 論文再現、Qwen3.5-9B の captured replay、K/V 分離の研究拡張（Triality 等）をまとめたリポジトリです。  
+Windows + `uv` + Python **3.12.x** を前提にしています。
 
-## Position / 立場
+## 立場（要約）
 
-This repository is intentionally positioned as a rebuttal-oriented reproduction.  
-このリポジトリは、意図的に「反論志向の再現実装」として位置づけています。
+- TurboQuant の KV 削減効果は実在する。  
+- 一方、私たちの Qwen3.5-9B captured replay では、論文忠実な `full_kv` は **logit 系より V 依存の hidden / transport 指標の方が先に崩れやすい**。  
+- 詳細な数値・統計・Google ブログ監査は本文後半の表と `artifacts/paper_baseline/` を参照。
 
-Our current position is:  
-現時点の立場は次です。
+## リポジトリ構成
 
-- TurboQuant does reduce KV-cache memory strongly.  
-  TurboQuant は KV cache メモリを大きく削減します。
-- However, Google's public messaging appears selectively benchmarked, or effectively cherry-picked, relative to broader runtime conditions.  
-  ただし Google の対外的な説明は、より広い runtime 条件に対しては選択的なベンチマーク提示、つまり実質的にチェリーピッキング寄りに見えます。
-- In our Qwen3.5-9B captured replay, paper-faithful `full_kv` preserves score-like metrics much better than it preserves V-dependent hidden-state transport.  
-  私たちの Qwen3.5-9B captured replay では、論文忠実な `full_kv` は score 系指標の保持に比べて、V 依存の hidden-state transport の保持がかなり弱いです。
+| 層 | 役割 |
+| --- | --- |
+| `turboquant.paper_baseline` | 論文忠実 Stage 1 / Stage 2（PyTorch のみ） |
+| `turboquant.research_extension` | K/V codec、V 感度、protected-V、low-rank、Triality proxy |
+| `turboquant.adapters.hf_qwen` | 任意: HF / Qwen の KV キャプチャと replay |
 
-In short: KV reduction is real, but the broad "no quality loss" reading is not supported by our runtime evidence.  
-要するに、KV 削減自体は本物ですが、「広い条件で性能劣化なし」という読みは私たちの runtime 実測では支持されません。
+正系の検証順序は **synthetic → attention → captured**（オフラインが正しいことを先に固める）。
 
-## Repository Layout / リポジトリ構成
+## ライセンス
 
-This repository has three explicit layers.  
-このリポジトリは 3 層構成です。
+Apache License 2.0 — [LICENSE](LICENSE)
 
-- `turboquant.paper_baseline`  
-  Paper-faithful Stage 1 / Stage 2 in PyTorch only.  
-  論文忠実な Stage 1 / Stage 2 の PyTorch 実装です。
-- `turboquant.research_extension`  
-  K/V-separated codecs, V sensitivity analysis, protected-V branches, and low-rank residual experiments.  
-  K/V 分離 codec、V 感度解析、protected-V 系、low-rank residual 実験です。
-- `turboquant.adapters.hf_qwen`  
-  Optional Hugging Face / Qwen capture and replay adapter.  
-  任意の Hugging Face / Qwen capture / replay adapter です。
+## 設定ファイルの二系統
 
-The canonical target is still the PyTorch baseline.  
-正系の対象はあくまで PyTorch baseline です。
+- `turboquant_config.paper.json` — 論文 baseline / HF replay 向け  
+- `turboquant_config.research.json` — 研究用・将来の sidecar 向け
 
-## License / ライセンス
+---
 
-This repository is licensed under Apache License 2.0.  
-このリポジトリは Apache License 2.0 です。
+## 環境セットアップ
 
-See [LICENSE](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\LICENSE).  
-詳細は [LICENSE](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\LICENSE) を参照してください。
-
-## Dual Schema / デュアルスキーマ
-
-This repository emits two config families.  
-このリポジトリは 2 系統の config を出力します。
-
-- `turboquant_config.paper.json`  
-  Paper-faithful baseline for HF/Qwen replay.  
-  HF/Qwen replay 用の論文忠実 baseline です。
-- `turboquant_config.research.json`  
-  Research / future Hypura-GGUF sidecar schema.  
-  研究用、および将来の Hypura / GGUF sidecar 用 schema です。
-
-## Environment (Python, CUDA, uv) / 実行環境
-
-- **Python**: This project supports **3.12.x only** (`requires-python = ">=3.12,<3.13"` in [`pyproject.toml`](pyproject.toml)).  
-  **Python**: **3.12.x のみ**（[`pyproject.toml`](pyproject.toml) の `requires-python`）。
-
-- **CUDA PyTorch**: Use **`uv sync --extra cu128`** so `torch` resolves from the `pytorch-cu128` index under `[tool.uv.sources]` / `[[tool.uv.index]]` in [`pyproject.toml`](pyproject.toml). Without that extra, you often get a CPU wheel and `torch.cuda.is_available()` stays `False`.  
-  **CUDA 版 PyTorch**: **`uv sync --extra cu128`**。`pyproject.toml` の `tool.uv.sources` が `pytorch-cu128` を指す。付けないと CPU 版になりやすい。
-
-- **Do not run project scripts with a global `py -3`** (for example Python 3.14): that interpreter is outside the supported range and usually carries a mismatched `torch`. Always **`cd` into `hub_Qwen3.5-9B-SOT` and use `uv run python ...`**.  
-  **グローバルな `py -3` で直接実行しない**（例: 3.14 は範囲外）。**`hub_Qwen3.5-9B-SOT` で `uv run python ...`** を使う。
-
-- **Working directory**: `pyproject.toml` and `scripts\` live **inside `hub_Qwen3.5-9B-SOT`**. Running `uv sync` or `uv run python scripts\...` from a parent folder (e.g. `Qwen3.5-9B-SOT-Deployment`) fails with “No pyproject.toml” or “can't open file …\scripts\…”. Either **`Set-Location hub_Qwen3.5-9B-SOT`** first, or from the parent use **`uv sync --project hub_Qwen3.5-9B-SOT`** and **`uv run --project hub_Qwen3.5-9B-SOT python scripts\...`**.  
-  **作業ディレクトリ**: `pyproject.toml` と `scripts\` は **`hub_Qwen3.5-9B-SOT` 配下**のみ。親フォルダで `uv` するとエラーになる。**`cd` するか `uv --project hub_Qwen3.5-9B-SOT`** を使う。
-
-- **GPU driver**: Use an NVIDIA driver compatible with the CUDA 12.8 stack shipped with PyTorch cu128 wheels; verify with `nvidia-smi`.  
-  **GPU ドライバ**: cu128 ホイールに合う NVIDIA ドライバ。`nvidia-smi` で確認。
-
-If `uv` is not installed yet: / `uv` 未導入なら:
+**必須**: リポジトリルートは **`hub_Qwen3.5-9B-SOT`**（`pyproject.toml` があるディレクトリ）。親フォルダで `uv run` すると失敗します。
 
 ```powershell
 irm https://astral.sh/uv/install.ps1 | iex
-```
-
-## Quick Start / クイックスタート
-
-```powershell
 uv python install 3.12.9
 uv venv --python 3.12.9
-uv sync --extra cu128 --extra dev
+uv sync --extra cu128 --extra dev --extra hf_qwen
+uv run python scripts\env_check.py
+```
+
+- CUDA 版 PyTorch は **`--extra cu128`** が必要。付けないと CPU 版になり `torch.cuda.is_available()` が `False` になりやすい。  
+- **グローバルな `py -3` だけ**でプロジェクトスクリプトを走らせない（未対応バージョン・別 torch と混ざる）。**`uv run python ...`** を使う。  
+- 親ディレクトリから実行する場合: `uv run --project hub_Qwen3.5-9B-SOT python scripts\...`
+
+代替: `.\scripts\bootstrap_uv.ps1 -PythonVersion 3.12.9 -TorchExtra cu128`  
+CUDA が既に合っていれば `.\scripts\bootstrap_uv.ps1 -SkipSyncIfCudaReady`
+
+本番向け一括: `.\scripts\run_production_tests.ps1`（`env_check` + `pytest`）
+
+---
+
+## クイックスタート（オフライン検証）
+
+```powershell
+Set-Location H:\path\to\hub_Qwen3.5-9B-SOT
 uv run python scripts\env_check.py
 uv run python -m pytest -q
 uv run python scripts\paper_validate_synthetic.py --trials 8
@@ -96,225 +65,249 @@ uv run python scripts\research_validate_v_codecs.py --query-source synthetic --t
 uv run python scripts\research_value_sensitivity.py --trials 3 --synthetic-layers 4
 ```
 
-### Verification / 動作確認
+---
+
+## 本番フロー: KV キャプチャ → 論文 baseline → Triality
+
+### 1. Qwen KV キャプチャ
+
+- **`--weight-load none`**: BitsAndBytes は使わず、bf16 等でフル重みロード。`from_pretrained` には **`device_map="auto"`**（accelerate）が付与される。  
+- **`--weight-load 4bit` / `8bit`**: `BitsAndBytesConfig` + `device_map="auto"`。
+
+ローカル重み（`config.json` + safetensors）の例:
 
 ```powershell
-uv run python scripts\env_check.py
-uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.version.cuda)"
+uv run python scripts\capture_qwen_kv.py `
+  --weight-load none --dtype bfloat16 --trust-remote-code `
+  --model-id "H:\Qwen3.5-9B-official-hf" `
+  --output-dir artifacts\kv_full_bf16 --max-length 96
 ```
 
-When CUDA is set up correctly, `env_check` should report `cuda_available: True` and `target_cuda_match: True`.  
-正常時は `env_check` に `cuda_available: True` と `target_cuda_match: True` が出る。
+Hub から読む場合は `--model-id Qwen/Qwen3.5-9B` 等に差し替え。  
+既定 `--model-id` は `turboquant.runtime` の `LOCAL_CAPTURE_MODEL_PATH`（環境に合わせて確認）。
 
-### Alternative bootstrap / 代替セットアップ
+**VRAM**: 9B を bf16 でフルロードする場合、おおむね **18GB 級**。10GB 級 GPU では OOM しやすい。
 
-```powershell
-.\scripts\bootstrap_uv.ps1 -PythonVersion 3.12.9 -TorchExtra cu128
-```
+出力は `artifacts\kv_full_bf16\<capture_id>\capture_manifest.json` と各層 `layer_*_{key,value}.pt`（複数プロンプトなら親ディレクトリがルート）。
 
-If you also need the Qwen adapter, run `uv sync --extra cu128 --extra dev --extra hf_qwen` afterward.  
-Qwen 用なら続けて `uv sync --extra cu128 --extra dev --extra hf_qwen`。
-
-To enable the Qwen adapter as well:  
-Qwen adapter も使う場合は次です。
+VRAM が厳しい場合は 4bit ロード（論文の「非量子化フル重み」条件とは別）:
 
 ```powershell
-uv sync --extra cu128 --extra dev --extra hf_qwen
 uv run python scripts\capture_qwen_kv.py --weight-load 4bit --max-length 96
-uv run python scripts\paper_validate_captured_qwen.py --kv-dir artifacts\kv --bits 2,2.5,3,3.5,4 --write-config
-uv run python scripts\research_validate_v_codecs.py --query-source captured --kv-dir artifacts\kv --trials 1 --max-layers 1 --bits 2,2.5,3.5,4 --write-config
 ```
 
-### Triality pipeline (captured KV) / Triality（キャプチャ KV）
+### 2. Captured 上の論文 baseline
 
-[`scripts/run_triality_full_pipeline.py`](scripts/run_triality_full_pipeline.py) runs **train-then-eval** on the same `--kv-dir` (defaults under `artifacts/research_extension/`). Arguments after `--` are forwarded to `research_validate_k_triality.py` (for example `--resume`).
+```powershell
+uv run python scripts\paper_validate_captured_qwen.py --kv-dir artifacts\kv_full_bf16
+```
+
+オプションは `uv run python scripts\paper_validate_captured_qwen.py -h` で確認。
+
+### 3. Triality フルパイプライン（学習 → 評価）
+
+[`scripts/run_triality_full_pipeline.py`](scripts/run_triality_full_pipeline.py) は **毎回** `research_train_k_triality.py` を実行してから `research_validate_k_triality.py` を実行する。
 
 ```powershell
 $env:PYTHONUNBUFFERED = "1"
-uv run python scripts\run_triality_full_pipeline.py --kv-dir artifacts\kv
+uv run python scripts\run_triality_full_pipeline.py `
+  --kv-dir artifacts\kv_full_bf16 `
+  --train-output-dir artifacts\research_extension\triality_full_train_prod_bf16 `
+  --eval-output-dir artifacts\research_extension\triality_full_eval_prod_bf16
 ```
 
-Example with eval-only extras: / 評価側にだけオプションを渡す例:
+**既定の「フル」の意味**
+
+- `--max-layers` 省略（0）→ **全キャプチャ層**を対象（`max_layers <= 0` はフィルタなし）。  
+- `--bits` 省略 → `2,2.5,3,3.5,4,8`（**8 はリポジトリ拡張**。論文表だけなら `--bits 2,2.5,3,3.5,4`）。  
+- `--train-steps` 既定 60、`--trials` 既定 3。
+
+`--` 以降は評価スクリプトへ転送（例: パイプライン経由で評価にだけオプションを付ける）:
 
 ```powershell
-uv run python scripts\run_triality_full_pipeline.py --kv-dir artifacts\kv -- --resume
+uv run python scripts\run_triality_full_pipeline.py --kv-dir artifacts\kv_full_bf16 -- --resume
 ```
 
-**Production / 本番（学習済み回転だけ評価）**: For real captured KV and trained rotations, **only replace `--kv-dir` and `--rotation-dir`** with your capture root (where `capture_manifest.json` lives, or the parent of multiple prompt captures) and your training output `rotations/` (from `research_train_k_triality.py`). **`--output-dir` may stay as below or any other directory name** you prefer. Always use `uv run` from this repo root.
+**注意**: 上記でも **学習フェーズは毎回走る**。学習済みの **`rotations/`** のみから評価を続ける場合は、パイプラインではなく **`research_validate_k_triality.py` を直接**呼ぶ（下記）。
 
-本番データでは **`--kv-dir` と `--rotation-dir` だけ**を、あなたのキャプチャルートと学習出力の `rotations` に差し替えればよい。**`--output-dir` は例のままでも別名でも可**。
+### 4. Triality 評価の再開（`--resume`）
+
+長時間の評価が途中で切れた場合、`metrics/triality_trials_partial.csv` と `metrics/eval_resume_state.json` から再開できる。
+
+- **初回と同一**の `--kv-dir` / `--rotation-dir` / `--bits` / `--max-layers` / `--trials` / `--eval-device` / `--output-dir` に **`--resume`** を付ける。  
+- **`bundle_keys` はキャプチャディレクトリの解決済みパスで正規化**されているため、相対・絶対の `--kv-dir` 混在でも fingerprint は一致しやすい（実装: `k_triality._bundle_keys_filtered`）。
 
 ```powershell
 $env:PYTHONUNBUFFERED = "1"
 uv run python scripts\research_validate_k_triality.py `
-  --kv-dir "D:\path\to\captured\kv_root" `
-  --rotation-dir "D:\path\to\train_output\rotations" `
+  --kv-dir artifacts\kv_full_bf16 `
+  --rotation-dir artifacts\research_extension\triality_full_train_prod_bf16\rotations `
+  --bits 2,2.5,3,3.5,4,8 `
+  --max-layers 0 `
+  --trials 3 `
+  --eval-device cuda `
+  --output-dir artifacts\research_extension\triality_full_eval_prod_bf16 `
+  --resume
+```
+
+- 頭からやり直す: `--force-fresh`（`--resume` と併用で state を無視）。  
+- 途中経過のコピー: `eval_output/checkpoints/cp_*`、既定のローリング間隔は `--checkpoint-interval-seconds`（既定 300）。短くすると停止時の損失が減る。
+
+**重要**: **同じ `--output-dir` に対して**、`--resume` なしの評価とパイプラインを**同時に複数起動しない**（部分 CSV と state が競合し、再開が壊れる）。
+
+**完了の目印**: `metrics/triality_summary_captured.md` / `.csv`、`triality_trials_captured.csv`、統計系 CSV/MD、`eval_status.json` の `last_completed_stage` が `finish`。
+
+評価ループ中は `eval_status.json` の `last_completed_stage` が進まない（長い `replay_or_load_trials` のあとにまとめて `write_csv_md` 等が走る）。途中終了時は `current_stage` が `replay_or_load_trials` のまま残りうる。
+
+### 学習済み回転だけ評価（本番ワンショット例）
+
+```powershell
+uv run python scripts\research_validate_k_triality.py `
+  --kv-dir "D:\path\to\kv_root" `
+  --rotation-dir "D:\path\to\train_out\rotations" `
   --eval-device cuda `
   --output-dir artifacts\research_extension\triality_full_eval
 ```
 
-## Main Entry Points / 主なエントリポイント
+---
 
-### Paper Baseline / 論文忠実 baseline
+## K 側ビットグリッド
 
-- `scripts\paper_validate_synthetic.py`
-- `scripts\paper_validate_attention.py`
-- `scripts\paper_validate_captured_qwen.py`
+多くのスクリプトの既定 `--bits` は **`2,2.5,3,3.5,4,8`**。整数 **8** は拡張。論文寄りの速いスイープは `--bits 2,2.5,3,3.5,4`。`bits=8` の Lloyd–Max 初回ビルドは head dim 128 で冷キャッシュ時に遅くなりうる。
 
-### Research Extension / 研究拡張
+---
 
-- `scripts\research_validate_v_codecs.py`
-- `scripts\research_value_sensitivity.py`
-- `scripts\run_triality_full_pipeline.py` (triality proxy: train rotations + validate on captured KV / 同一 KV で学習→評価)
-- `scripts\research_train_k_triality.py`
-- `scripts\research_validate_k_triality.py`
+## 主なスクリプト
 
-### HF/Qwen Adapter / HF・Qwen adapter
+| 区分 | パス |
+| --- | --- |
+| 論文 baseline | `scripts/paper_validate_synthetic.py`, `paper_validate_attention.py`, `paper_validate_captured_qwen.py` |
+| 研究拡張 | `scripts/research_validate_v_codecs.py`, `research_value_sensitivity.py`, `run_triality_full_pipeline.py`, `research_train_k_triality.py`, `research_validate_k_triality.py` |
+| HF / Qwen | `scripts/capture_qwen_kv.py`, `validate_attention_scores.py`, `export_report.py`, `env_check.py`, `benchmark_encode_decode.py` |
 
-- `scripts\capture_qwen_kv.py`
-- `scripts\validate_attention_scores.py`
-- `scripts\export_report.py`
-- `scripts\env_check.py`
-- `scripts\benchmark_encode_decode.py`
+---
 
-## Paper Baseline Result on Qwen3.5-9B / Qwen3.5-9B での論文 baseline 結果
+## Qwen3.5-9B captured baseline（2–8 bit、Mean ± SD と統計）
 
-The extracted paper-baseline artifact set lives under:  
-論文 baseline の抽出 artifact は次にあります。
+### データソース
 
-- `artifacts/paper_baseline/qwen_captured_reported/`
+- **拡張グリッド（2, 2.5, 3, 3.5, 4, 8）** の集約指標と統計は、  
+  `artifacts/paper_baseline/qwen_captured_full_bf16/metrics/attention_trials_captured.csv` の **trial 行**を対象に算出した。  
+  各 **(mode, bit_setting)** について **n = 96**（4 プロンプト × 8 層 × 3 trials；キャプチャ構成が変われば n も変わる）。
+- **論文レンジのみのサマリ**（別 run）: `artifacts/paper_baseline/qwen_captured_reported/`（表は過去の `n = 4` 集計向け）。
 
-This section uses only the paper modes.  
-この節では論文 baseline の mode のみを使います。
+モード: `key_only_random`, `full_kv`（ほか `exact` は集約表外）。  
+Mixed-bit: `2.5` = 32ch@3bit + 96ch@2bit、`3.5` = 32ch@4bit + 96ch@3bit。  
+**8** はリポジトリ既定グリッドの拡張ビット。
 
-- `exact`
-- `key_only_random`
-- `full_kv`
+### Mean ± SD（trial 集約、`qwen_captured_full_bf16`）
 
-Mixed-bit points `2.5` and `3.5` follow the paper policy.  
-mixed-bit の `2.5` と `3.5` は論文ポリシーに従います。
+Logit cosine はこのキャプチャ集合では **key_only と full_kv で層別 trial 値が一致**するため、下表では **1 列**にまとめた。
 
-- `2.5 bit = 32 channels @ 3 bit + 96 channels @ 2 bit`
-- `3.5 bit = 32 channels @ 4 bit + 96 channels @ 3 bit`
+| Bits | Logit cosine | Hidden cosine (key_only) | Hidden cosine (full_kv) | Memory / exact (KO) | Memory / exact (FV) | Attn out rel err (KO) | Attn out rel err (FV) | Memory bits (KO) | Memory bits (FV) |
+| ---: | --- | --- | --- | ---: | ---: | --- | --- | --- | --- |
+| 2 | 0.997314 ± 0.003554 | 0.999756 ± 0.003794 | 0.940959 ± 0.003962 | 0.566406 | 0.130859 | 0.027470 ± 0.021959 | 0.339172 ± 0.006291 | 338720 ± 83829 | 78256 ± 19367 |
+| 2.5 | 0.998494 ± 0.003982 | 0.998779 ± 0.004099 | 0.958700 ± 0.003791 | 0.574219 | 0.146484 | 0.027599 ± 0.029244 | 0.285421 ± 0.006102 | 343392 ± 84985 | 87600 ± 21680 |
+| 3 | 0.999349 ± 0.003872 | 0.999715 ± 0.003168 | 0.982625 ± 0.003395 | 0.597656 | 0.193359 | 0.014811 ± 0.013992 | 0.184458 ± 0.004565 | 357408 ± 88454 | 115632 ± 28617 |
+| 3.5 | 0.999308 ± 0.003353 | 1.000285 ± 0.003896 | 0.988403 ± 0.003179 | 0.605469 | 0.208984 | 0.015692 ± 0.016130 | 0.151886 ± 0.004057 | 362080 ± 89610 | 124976 ± 30930 |
+| 4 | 0.999552 ± 0.004312 | 0.999959 ± 0.003823 | 0.995524 ± 0.003352 | 0.628906 | 0.255859 | 0.006952 ± 0.005955 | 0.096430 ± 0.002715 | 376096 ± 93079 | 153008 ± 37867 |
+| 8 | 1.000244 ± 0.004563 | 1.000000 ± 0.003802 | 0.999715 ± 0.003854 | 0.753906 | 0.505859 | 0.002421 ± 0.001509 | 0.029344 ± 0.000504 | 450848 ± 111579 | 302512 ± 74868 |
 
-### Representative Values / 代表値
+Memory ratio 列は設定上定数のため SD = 0。Memory bits は層・シーケンス長のばらつきで SD > 0。
 
-| Mode | Bits | Logit Cosine | Hidden Cosine | Memory / Exact |
-| --- | ---: | ---: | ---: | ---: |
-| key-only random | 2.0 | 0.997070 | 0.997070 | 0.566406 |
-| key-only random | 4.0 | 0.998047 | 0.999023 | 0.628906 |
-| full-KV | 2.0 | 0.997070 | 0.940430 | 0.130859 |
-| full-KV | 4.0 | 0.998047 | 0.995117 | 0.255859 |
+### エラーバー付きグラフ（HTML）
 
-### Mean +/- SD / mean +/- SD
+静的 PNG が無い場合でも、次をブラウザで開くと **トレードオフ曲線＋誤差表示（実装依存で error bar / band）** が見られる。
 
-| Mode | Bits | Logit Cosine (mean +/- SD) | Hidden Cosine (mean +/- SD) | Memory Ratio (mean +/- SD) |
-| --- | ---: | --- | --- | --- |
-| key-only random | 2.0 | 0.995117 +/- 0.001953 | 0.997070 +/- 0.003740 | 0.566406 +/- 0.000000 |
-| key-only random | 2.5 | 0.998047 +/- 0.002255 | 0.999023 +/- 0.001953 | 0.574219 +/- 0.000000 |
-| key-only random | 3.0 | 1.000000 +/- 0.000000 | 0.998047 +/- 0.002255 | 0.597656 +/- 0.000000 |
-| key-only random | 3.5 | 0.999023 +/- 0.001953 | 0.999023 +/- 0.001953 | 0.605469 +/- 0.000000 |
-| key-only random | 4.0 | 0.998047 +/- 0.003906 | 0.999023 +/- 0.001953 | 0.628906 +/- 0.000000 |
-| full-KV | 2.0 | 0.995117 +/- 0.001953 | 0.939453 +/- 0.006766 | 0.130859 +/- 0.000000 |
-| full-KV | 2.5 | 0.998047 +/- 0.002255 | 0.957031 +/- 0.003189 | 0.146484 +/- 0.000000 |
-| full-KV | 3.0 | 1.000000 +/- 0.000000 | 0.980469 +/- 0.005524 | 0.193359 +/- 0.000000 |
-| full-KV | 3.5 | 0.999023 +/- 0.001953 | 0.988281 +/- 0.003189 | 0.208984 +/- 0.000000 |
-| full-KV | 4.0 | 0.998047 +/- 0.003906 | 0.995117 +/- 0.001953 | 0.255859 +/- 0.000000 |
+- [attention_tradeoffs_captured.html](artifacts/paper_baseline/qwen_captured_full_bf16/plots/attention_tradeoffs_captured.html)
+- [attention_runtime_tradeoffs_captured.html](artifacts/paper_baseline/qwen_captured_full_bf16/plots/attention_runtime_tradeoffs_captured.html)
 
-### KV Cache Reduction / KV cache 削減
+PNG を別途吐き出す場合は `paper_validate_captured_qwen.py` の出力先（例: `qwen_captured_reported/plots/`）を参照。
 
-| Bits | key-only random memory ratio | full-KV memory ratio | full-KV memory bits (mean +/- SD) |
-| --- | --- | --- | --- |
-| 2.0 | 0.566406 +/- 0.000000 | 0.130859 +/- 0.000000 | 78256.0 +/- 22246.7 |
-| 2.5 | 0.574219 +/- 0.000000 | 0.146484 +/- 0.000000 | 87600.0 +/- 24903.0 |
-| 3.0 | 0.597656 +/- 0.000000 | 0.193359 +/- 0.000000 | 115632.0 +/- 32872.0 |
-| 3.5 | 0.605469 +/- 0.000000 | 0.208984 +/- 0.000000 | 124976.0 +/- 35528.3 |
-| 4.0 | 0.628906 +/- 0.000000 | 0.255859 +/- 0.000000 | 153008.0 +/- 43497.3 |
+![Paper baseline trade-offs（reported run、PNG がある場合）](artifacts/paper_baseline/qwen_captured_reported/plots/attention_tradeoffs_captured.png)
 
-The practical trade-off is stable across all bits: `full_kv` saves much more KV cache, but the extra V compression mainly appears as hidden-state degradation and transport error rather than as a large logit-cosine drop.  
-実務上のトレードオフは全 bit で安定しています。`full_kv` は KV cache を大きく削減しますが、その追加の V 圧縮は主に hidden-state 劣化と transport error として現れ、logit cosine の大きな低下としては現れません。
+![Paper baseline mean ± SD（reported run）](artifacts/paper_baseline/qwen_captured_reported/plots/attention_mean_pm_sd_captured.png)
 
-### Plots / 図
+![V breakage by bit（reported run）](artifacts/paper_baseline/qwen_captured_reported/plots/attention_v_breakage_by_bit_sd.png)
 
-![Paper baseline trade-offs](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\artifacts\paper_baseline\qwen_captured_reported\plots\attention_tradeoffs_captured.png)
+---
 
-![Paper baseline mean plus SD](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\artifacts\paper_baseline\qwen_captured_reported\plots\attention_mean_pm_sd_captured.png)
+## 統計処理（`qwen_captured_full_bf16`、6 bit × 2 mode）
 
-![V breakage by bit](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\artifacts\paper_baseline\qwen_captured_reported\plots\attention_v_breakage_by_bit_sd.png)
+### 多群比較: Kruskal–Wallis（trial 単位、12 群）
 
-## Statistical Treatment / 統計処理
+群 = `(key_only_random | full_kv) × (2, 2.5, 3, 3.5, 4, 8)`。Python `scipy.stats.kruskal`、各群 n = 96。
 
-The statistical summary uses `attention_trials_captured.csv` with `n = 4` per `(mode, bit)` group.  
-統計処理は `attention_trials_captured.csv` を使い、各 `(mode, bit)` 群で `n = 4` です。
+| Metric | H statistic | p-value |
+| --- | ---: | ---: |
+| hidden_cosine_similarity | 896.32 | ≈ 3.84 × 10⁻¹⁸⁵ |
+| attention_output_relative_error | 1029.70 | ≈ 7.78 × 10⁻²¹⁴ |
+| logit_cosine_similarity | 55.40 | ≈ 6.55 × 10⁻⁸ |
 
-### Omnibus Comparison / 多群比較
+Hidden / attention error は **bit と mode の組み合わせ**で分布が強く分かれる。Logit も 12 群間で有意だが、上表のとおり **同一 bit 内では KO/FV の trial 分布が一致**する。
 
-| Metric | Test | Statistic | p-value |
-| --- | --- | ---: | ---: |
-| hidden cosine similarity | Kruskal-Wallis | 33.8627 | 9.44e-05 |
-| attention output relative error | Kruskal-Wallis | 37.5473 | 2.10e-05 |
-| logit cosine similarity | Kruskal-Wallis | 17.2946 | 4.43e-02 |
+### 二元比較: Mann–Whitney U（key_only_random vs full_kv、各 bit）
 
-This cleanly separates the V-sensitive metrics from the score metric.  
-これにより、V に敏感な指標と score 系の指標がきれいに分かれます。
+同一 bit 内で両 mode の trial を二群比較（two-sided）。
 
-### Bit-wise Pairwise Tests / bit ごとの対比較
+**hidden_cosine_similarity**
 
-| Bits | Hidden delta (`key_only - full_kv`) | Hidden p | Attention error delta (`key_only - full_kv`) | Attention error p | Logit delta | Logit p |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 2.0 | 0.057617 | 0.0143 | -0.291382 | 0.0143 | 0.000000 | 1.0000 |
-| 2.5 | 0.041992 | 0.0143 | -0.254044 | 0.0143 | 0.000000 | 1.0000 |
-| 3.0 | 0.017578 | 0.0143 | -0.160980 | 0.0143 | 0.000000 | 1.0000 |
-| 3.5 | 0.010742 | 0.0143 | -0.136307 | 0.0143 | 0.000000 | 1.0000 |
-| 4.0 | 0.003906 | 0.0571 | -0.087006 | 0.0143 | 0.000000 | 1.0000 |
+| Bits | p-value | mean (key_only) | mean (full_kv) |
+| ---: | --- | ---: | ---: |
+| 2 | ≈ 2.23 × 10⁻³⁴ | 0.999756 | 0.940959 |
+| 2.5 | ≈ 2.88 × 10⁻³⁴ | 0.998779 | 0.958700 |
+| 3 | ≈ 4.71 × 10⁻³⁵ | 0.999715 | 0.982625 |
+| 3.5 | ≈ 1.13 × 10⁻³³ | 1.000285 | 0.988403 |
+| 4 | ≈ 2.55 × 10⁻¹⁵ | 0.999959 | 0.995524 |
+| 8 | ≈ 0.540 | 1.000000 | 0.999715 |
 
-Interpretation / 解釈:
+**attention_output_relative_error**
 
-- `full_kv` always lowers hidden cosine relative to `key_only_random`.  
-  `full_kv` は常に `key_only_random` より hidden cosine を下げます。
-- `full_kv` always increases attention-output relative error.  
-  `full_kv` は常に attention-output relative error を上げます。
-- `logit_cosine_similarity` does not separate the two modes in this baseline.  
-  この baseline では `logit_cosine_similarity` は両 mode をほとんど分離しません。
-- The failure mode is therefore value-path transport, not the score path.  
-  したがって、壊れている本体は score path ではなく value-path transport です。
+| Bits | p-value | mean (key_only) | mean (full_kv) |
+| ---: | --- | ---: | ---: |
+| 2 | ≈ 4.79 × 10⁻³³ | 0.027470 | 0.339172 |
+| 2.5 | ≈ 4.47 × 10⁻³³ | 0.027599 | 0.285421 |
+| 3 | ≈ 4.95 × 10⁻³³ | 0.014811 | 0.184458 |
+| 3.5 | ≈ 4.50 × 10⁻³³ | 0.015692 | 0.151886 |
+| 4 | ≈ 5.05 × 10⁻³³ | 0.006952 | 0.096430 |
+| 8 | ≈ 4.56 × 10⁻³³ | 0.002421 | 0.029344 |
 
-Because `n = 4` per group, Holm-corrected exact pairwise tests are conservative. The omnibus Kruskal results plus the consistent directional deltas are the more informative summary.  
-各群 `n = 4` と小さいため、Holm 補正済みの exact pairwise test はかなり保守的です。そのため、Kruskal の omnibus 結果と一貫した差の向きのほうが情報量が高いと解釈しています。
+### 解釈（8 bit を含めて）
 
-## Audit: Google Blog vs Paper vs Qwen3.5-9B / 監査: Google ブログ vs 論文 vs Qwen3.5-9B
+- **低〜中 bit**: hidden cosine は一貫して `full_kv` が `key_only_random` より低く、Mann–Whitney も極めて小さい p。  
+- **8 bit**: hidden は両 mode がほぼ天井付近で **差が統計的に検出されない**（p ≈ 0.54）。一方 **attention_output_relative_error** は 8 bit でも full_kv の方が大きく、p は依然として有意（≪ 0.001）。  
+- **logit cosine** はこのデータでは mode 間で同一分布のため、上記二元比較は省略。
 
-We provide a three-column audit table comparing the public Google blog messaging, the actual scope of the paper, and our Qwen3.5-9B captured replay.  
-Google の広報ブログ、論文が実際に保証している範囲、そして Qwen3.5-9B の captured replay 実測を 3 列で並べた監査表を用意しています。
+### 参考: 旧サマリ（`qwen_captured_reported`、各 (mode, bit) で n = 4）
 
-Audit artifacts / 監査 artifact:
+層平均サマリのみを並べた旧表向けの Kruskal（例）:
 
-- `artifacts/paper_baseline/google_blog_audit/metrics/google_blog_paper_qwen_audit.csv`
-- `artifacts/paper_baseline/google_blog_audit/metrics/google_blog_paper_qwen_audit.md`
-- `artifacts/paper_baseline/google_blog_audit/metrics/qwen_summary_stats.csv`
-- `artifacts/paper_baseline/google_blog_audit/metrics/qwen_summary_stats.md`
+| Metric | H | p-value |
+| --- | ---: | ---: |
+| hidden cosine similarity | 33.86 | 9.44e-05 |
+| attention output relative error | 37.55 | 2.10e-05 |
+| logit cosine similarity | 17.29 | 4.43e-02 |
+
+Holm 補正後の bit ごと pairwise は n が小さく保守的になりやすい — **omnibus と上記 trial 集約**を併用する。
+
+---
+
+## 監査: Google ブログ vs 論文 vs Qwen3.5-9B
+
+- `artifacts/paper_baseline/google_blog_audit/metrics/google_blog_paper_qwen_audit.csv`（ほか `.md`, `qwen_summary_stats.*`）  
 - `artifacts/paper_baseline/google_blog_audit/plots/google_blog_paper_qwen_audit.png`
 
-Audit conclusion / 監査の結論:
+![Google blog audit plot](artifacts/paper_baseline/google_blog_audit/plots/google_blog_paper_qwen_audit.png)
 
-- The Google blog is directionally correct about KV-cache reduction.  
-  Google ブログは KV cache 削減については方向として正しいです。
-- It becomes too broad if read as "no accuracy loss in general runtimes."  
-  ただし「一般的な runtime でも性能劣化なし」と読むと広すぎます。
-- On Qwen3.5-9B captured replay, `full_kv` preserves score-like metrics much better than it preserves value transport.  
-  Qwen3.5-9B captured replay では、`full_kv` は score 系指標の保持に比べて value transport の保持がかなり弱いです。
-- This repository therefore argues that Google's public result framing is selectively benchmarked, or effectively cherry-picked, relative to broader runtime behavior.  
-  したがって本リポジトリは、Google の対外的な結果提示は、より広い runtime 挙動に対しては選択的、すなわち実質的にチェリーピッキング的であると主張します。
+---
 
-![Google blog audit plot](H:\Qwen3.5-9B-SOT-Deployment\hub_Qwen3.5-9B-SOT\artifacts\paper_baseline\google_blog_audit\plots\google_blog_paper_qwen_audit.png)
+## 最終メッセージ
 
-## Final Takeaway / 最終結論
+Captured replay では **`key_only_random` の方が `full_kv` より hidden geometry を保ちやすい**（低〜中 bit）。**8 bit 拡張点**では hidden は mode 差が統計的に潰れうる一方、attention 出力相対誤差はなお full_kv 側が大きい。mixed 2.5 / 3.5 は中間 Pareto として有用。  
+TurboQuant の KV 削減は実在する一方、論文忠実 `full_kv` は **score 系より V 依存の transport 側が先に劣化しやすい** — trial 集約・多群比較・監査表が同じ質的結論を支持する。
 
-Paper baseline conclusion: `key_only_random` preserves hidden geometry better than `full_kv` on Qwen3.5-9B captured replay.  
-論文 baseline の結論: Qwen3.5-9B captured replay では `key_only_random` のほうが `full_kv` より hidden geometry を保ちます。
+---
 
-Mixed-bit `2.5 / 3.5` remain useful intermediate Pareto points.  
-mixed-bit の `2.5 / 3.5` は中間 Pareto 点として依然有用です。
+## 再現性メモ
 
-The statistical evidence and the audit table support the same qualitative claim: TurboQuant reduces KV cache size as intended, but the paper-faithful `full_kv` path damages the V-dependent token-output transport signal before it meaningfully damages the logit score signal.  
-統計処理と監査表の両方が、同じ質的結論を支持しています。つまり、TurboQuant は意図どおり KV cache を削減しますが、論文忠実な `full_kv` 経路は、logit の score 信号を大きく壊す前に、V 依存の token-output transport 信号を壊します。
+実験 artifact には、可能な範囲で **model / tokenizer / seed / dtype / device / 量子化設定 / prompt hash / タイムスタンプ / パッケージ版本** を残す（`AGENTS.md` 参照）。

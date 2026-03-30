@@ -440,7 +440,8 @@ def _stable_sort_bundles(bundles: list) -> list:
 
 
 def _bundle_keys_filtered(bundles_filtered: list) -> list[str]:
-    return [f"{b.capture_dir.as_posix()}:{b.layer_idx}" for b in bundles_filtered]
+    # Resolve so bundle_keys match resume state regardless of relative vs absolute --kv-dir.
+    return [f"{b.capture_dir.resolve().as_posix()}:{b.layer_idx}" for b in bundles_filtered]
 
 
 def triality_eval_config_fingerprint(

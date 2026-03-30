@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seq-len", type=int, default=64)
     parser.add_argument("--head-dim", type=int, default=128)
     parser.add_argument("--max-layers", type=int, default=0)
-    parser.add_argument("--bits", default="2,2.5,3,3.5,4")
+    parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
     parser.add_argument("--sensitivity-group-size", type=int, default=8)
     parser.add_argument("--protection-grid-layer-limit", type=int, default=1)
     parser.add_argument("--eval-device", default="auto")

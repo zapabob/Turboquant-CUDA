@@ -1,0 +1,7 @@
+layer,bits,bit_setting,view,mode,rotation_path,rotation_seed,qjl_seed
+0,2.0,2,vector,key_only_block_so8_triality_vector,artifacts/research_extension/triality_plan_smoke_train/rotations/layer_00_bits_2_vector.pt,70217,70271
+0,2.0,2,spinor_plus_proxy,key_only_block_so8_triality_plus,artifacts/research_extension/triality_plan_smoke_train/rotations/layer_00_bits_2_spinor_plus_proxy.pt,70474,70528
+0,2.0,2,spinor_minus_proxy,key_only_block_so8_triality_minus,artifacts/research_extension/triality_plan_smoke_train/rotations/layer_00_bits_2_spinor_minus_proxy.pt,70731,70785
+0,3.0,3,vector,key_only_block_so8_triality_vector,artifacts/research_extension/triality_plan_smoke_train/rotations/layer_00_bits_3_vector.pt,70317,70371
+0,3.0,3,spinor_plus_proxy,key_only_block_so8_triality_plus,artifacts/research_extension/triality_plan_smoke_train/rotations/layer_00_bits_3_spinor_plus_proxy.pt,70574,70628
+0,3.0,3,spinor_minus_proxy,key_only_block_so8_triality_minus,artifacts/research_extension/triality_plan_smoke_train/rotations/layer_00_bits_3_spinor_minus_proxy.pt,70831,70885

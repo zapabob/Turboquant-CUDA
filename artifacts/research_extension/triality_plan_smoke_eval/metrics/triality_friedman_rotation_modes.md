@@ -1,0 +1,6 @@
+| metric | bit_setting | test | n_blocks | n_modes | statistic | p_value | modes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| hidden_cosine_similarity | 2 | friedman | 4 | 7 | 18.85714285714284 | 0.0044118239963786615 | key_only_random,key_only_block_so8_static,key_only_block_so8_learned,key_only_block_so8_triality_vector,key_only_block_so8_triality_plus,key_only_block_so8_triality_minus,full_kv |
+| hidden_cosine_similarity | 3 | friedman | 4 | 7 | 13.285714285714278 | 0.03871660116217447 | key_only_random,key_only_block_so8_static,key_only_block_so8_learned,key_only_block_so8_triality_vector,key_only_block_so8_triality_plus,key_only_block_so8_triality_minus,full_kv |
+| next_logit_kl | 2 | friedman | 4 | 7 | 5.345454545454546 | 0.5003287753144154 | key_only_random,key_only_block_so8_static,key_only_block_so8_learned,key_only_block_so8_triality_vector,key_only_block_so8_triality_plus,key_only_block_so8_triality_minus,full_kv |
+| next_logit_kl | 3 | friedman | 4 | 7 | 2.444444444444434 | 0.8746326692417398 | key_only_random,key_only_block_so8_static,key_only_block_so8_learned,key_only_block_so8_triality_vector,key_only_block_so8_triality_plus,key_only_block_so8_triality_minus,full_kv |

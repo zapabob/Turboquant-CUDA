@@ -1,0 +1,52 @@
+[2026-03-29T08:05:35.856815+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T08:13:59.614220+00:00] [triality-eval] done=replay_or_load_trials elapsed_s=503.758
+[2026-03-29T08:13:59.621295+00:00] [triality-eval] start=write_csv_md
+[2026-03-29T08:14:01.214308+00:00] [triality-eval] done=write_csv_md elapsed_s=1.593
+[2026-03-29T08:14:01.216336+00:00] [triality-eval] start=plot_generation
+[2026-03-29T08:14:07.480128+00:00] [triality-eval] done=plot_generation elapsed_s=6.264
+[2026-03-29T08:14:07.482125+00:00] [triality-eval] start=finish
+[2026-03-29T08:14:07.485117+00:00] [triality-eval] done=finish elapsed_s=0.002
+[2026-03-29T08:14:07.533887+00:00]                         dataset             mode  ...      ci95_low     ci95_high
+0      research_captured:coding            exact  ...  0.000000e+00  0.000000e+00
+1      research_captured:coding            exact  ...  2.509239e-01  2.509239e-01
+2      research_captured:coding            exact  ...  1.000000e+00  1.000000e+00
+3      research_captured:coding            exact  ...  0.000000e+00  0.000000e+00
+4      research_captured:coding            exact  ...  0.000000e+00  0.000000e+00
+...                         ...              ...  ...           ...           ...
+1015  research_captured:summary  key_only_random  ...  4.308480e+05  4.308480e+05
+1016  research_captured:summary  key_only_random  ...  5.976562e-01  5.976562e-01
+1017  research_captured:summary  key_only_random  ... -1.150298e-24 -1.150298e-24
+1018  research_captured:summary  key_only_random  ...  1.833447e+01  1.833447e+01
+1019  research_captured:summary  key_only_random  ...  2.384730e-02  2.384730e-02
+
+[1020 rows x 11 columns]
+[2026-03-29T08:14:07.585611+00:00]                      metric                view  ... p_value_holm significant_0_05
+0  hidden_cosine_similarity              vector  ...          1.0            False
+1  hidden_cosine_similarity   spinor_plus_proxy  ...          1.0            False
+2  hidden_cosine_similarity  spinor_minus_proxy  ...          1.0            False
+3             next_logit_kl              vector  ...          1.0            False
+4             next_logit_kl   spinor_plus_proxy  ...          1.0            False
+5             next_logit_kl  spinor_minus_proxy  ...          1.0            False
+
+[6 rows x 13 columns]
+[2026-03-29T08:14:07.622900+00:00]                      metric  ...                                              modes
+0  hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+1  hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+2             next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+3             next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+
+[4 rows x 8 columns]
+[2026-03-29T08:14:07.665015+00:00]                       metric bit_setting  ... p_value_holm significant_0_05
+0   hidden_cosine_similarity           2  ...          1.0            False
+1   hidden_cosine_similarity           2  ...          1.0            False
+2   hidden_cosine_similarity           2  ...          1.0            False
+3   hidden_cosine_similarity           2  ...          1.0            False
+4   hidden_cosine_similarity           2  ...          1.0            False
+..                       ...         ...  ...          ...              ...
+79             next_logit_kl           3  ...          1.0            False
+80             next_logit_kl           3  ...          1.0            False
+81             next_logit_kl           3  ...          1.0            False
+82             next_logit_kl           3  ...          1.0            False
+83             next_logit_kl           3  ...          1.0            False
+
+[84 rows x 13 columns]

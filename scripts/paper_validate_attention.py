@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--heads", type=int, default=2)
     parser.add_argument("--seq-len", type=int, default=64)
     parser.add_argument("--head-dim", type=int, default=128)
-    parser.add_argument("--bits", default="2,2.5,3,3.5,4")
+    parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
     return parser.parse_args()
 
 

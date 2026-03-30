@@ -410,7 +410,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rotation-dir", default="artifacts/research_extension/triality_k_only/rotations")
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--max-layers", type=int, default=0)
-    parser.add_argument("--bits", default="2,2.5,3,3.5,4")
+    parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
     parser.add_argument("--eval-device", default="cpu")
     parser.add_argument("--output-dir", default=str(ARTIFACT_ROOT))
     parser.add_argument("--skip-plots", action="store_true")

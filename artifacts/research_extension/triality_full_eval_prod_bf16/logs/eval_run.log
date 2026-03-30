@@ -1,0 +1,122 @@
+[2026-03-29T11:59:07.207235+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T13:12:33.287194+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T15:04:43.204857+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T15:05:17.284323+00:00] [triality-eval] start=replay_or_load_trials
+[2026-03-29T16:59:52.325709+00:00] [triality-eval] done=replay_or_load_trials elapsed_s=6875.042
+[2026-03-29T16:59:52.325709+00:00] [triality-eval] start=write_csv_md
+[2026-03-29T16:59:54.461430+00:00] [triality-eval] done=write_csv_md elapsed_s=2.136
+[2026-03-29T16:59:54.464287+00:00] [triality-eval] start=plot_generation
+[2026-03-29T16:59:57.818751+00:00] [triality-eval] done=plot_generation elapsed_s=3.354
+[2026-03-29T16:59:57.820359+00:00] [triality-eval] start=finish
+[2026-03-29T16:59:57.822778+00:00] [triality-eval] done=finish elapsed_s=0.001
+[2026-03-29T16:59:57.855486+00:00]                         dataset             mode  ...       ci95_low      ci95_high
+0      research_captured:coding            exact  ...       0.000000       0.000000
+1      research_captured:coding            exact  ...      -0.003909       0.015315
+2      research_captured:coding            exact  ...       1.000000       1.000000
+3      research_captured:coding            exact  ...       0.000000       0.000000
+4      research_captured:coding            exact  ...       0.000000       0.000000
+...                         ...              ...  ...            ...            ...
+2919  research_captured:summary  key_only_random  ...  543488.000000  543488.000000
+2920  research_captured:summary  key_only_random  ...       0.753906       0.753906
+2921  research_captured:summary  key_only_random  ...      -0.041844       0.289860
+2922  research_captured:summary  key_only_random  ...      18.334473      18.334473
+2923  research_captured:summary  key_only_random  ...       0.008088       0.009761
+
+[2924 rows x 11 columns]
+[2026-03-29T16:59:57.878189+00:00]                      metric                view  ... p_value_holm significant_0_05
+0  hidden_cosine_similarity              vector  ...     0.824350            False
+1  hidden_cosine_similarity   spinor_plus_proxy  ...     0.566215            False
+2  hidden_cosine_similarity  spinor_minus_proxy  ...     0.824350            False
+3             next_logit_kl              vector  ...     0.938146            False
+4             next_logit_kl   spinor_plus_proxy  ...     0.598473            False
+5             next_logit_kl  spinor_minus_proxy  ...     0.938146            False
+
+[6 rows x 13 columns]
+[2026-03-29T16:59:57.893321+00:00]                       metric  ...                                              modes
+0   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+1   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+2   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+3   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+4   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+5   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+6              next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+7              next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+8              next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+9              next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+10             next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+11             next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+
+[12 rows x 8 columns]
+[2026-03-29T16:59:57.914295+00:00]                        metric bit_setting  ... p_value_holm significant_0_05
+0    hidden_cosine_similarity           2  ...     1.000000            False
+1    hidden_cosine_similarity           2  ...     1.000000            False
+2    hidden_cosine_similarity           2  ...     1.000000            False
+3    hidden_cosine_similarity           2  ...     1.000000            False
+4    hidden_cosine_similarity           2  ...     1.000000            False
+..                        ...         ...  ...          ...              ...
+247             next_logit_kl           8  ...     1.000000            False
+248             next_logit_kl           8  ...     1.000000            False
+249             next_logit_kl           8  ...     0.088597            False
+250             next_logit_kl           8  ...     1.000000            False
+251             next_logit_kl           8  ...     0.088597            False
+
+[252 rows x 13 columns]
+[2026-03-29T17:02:56.875007+00:00] [triality-eval] done=replay_or_load_trials elapsed_s=7093.670
+[2026-03-29T17:02:56.877532+00:00] [triality-eval] start=write_csv_md
+[2026-03-29T17:02:59.400550+00:00] [triality-eval] done=write_csv_md elapsed_s=2.524
+[2026-03-29T17:02:59.401944+00:00] [triality-eval] start=plot_generation
+[2026-03-29T17:03:02.422639+00:00] [triality-eval] done=plot_generation elapsed_s=3.020
+[2026-03-29T17:03:02.424600+00:00] [triality-eval] start=finish
+[2026-03-29T17:03:02.426753+00:00] [triality-eval] done=finish elapsed_s=0.002
+[2026-03-29T17:03:02.443226+00:00]                         dataset             mode  ...       ci95_low      ci95_high
+0      research_captured:coding            exact  ...       0.000000       0.000000
+1      research_captured:coding            exact  ...      -0.003945       0.015281
+2      research_captured:coding            exact  ...       1.000000       1.000000
+3      research_captured:coding            exact  ...       0.000000       0.000000
+4      research_captured:coding            exact  ...       0.000000       0.000000
+...                         ...              ...  ...            ...            ...
+2919  research_captured:summary  key_only_random  ...  543488.000000  543488.000000
+2920  research_captured:summary  key_only_random  ...       0.753906       0.753906
+2921  research_captured:summary  key_only_random  ...      -0.041844       0.289860
+2922  research_captured:summary  key_only_random  ...      18.334473      18.334473
+2923  research_captured:summary  key_only_random  ...       0.007942       0.012675
+
+[2924 rows x 11 columns]
+[2026-03-29T17:03:02.456115+00:00]                      metric                view  ... p_value_holm significant_0_05
+0  hidden_cosine_similarity              vector  ...     0.824350            False
+1  hidden_cosine_similarity   spinor_plus_proxy  ...     0.566215            False
+2  hidden_cosine_similarity  spinor_minus_proxy  ...     0.824350            False
+3             next_logit_kl              vector  ...     0.938146            False
+4             next_logit_kl   spinor_plus_proxy  ...     0.598473            False
+5             next_logit_kl  spinor_minus_proxy  ...     0.938146            False
+
+[6 rows x 13 columns]
+[2026-03-29T17:03:02.464698+00:00]                       metric  ...                                              modes
+0   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+1   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+2   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+3   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+4   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+5   hidden_cosine_similarity  ...  key_only_random,key_only_block_so8_static,key_...
+6              next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+7              next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+8              next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+9              next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+10             next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+11             next_logit_kl  ...  key_only_random,key_only_block_so8_static,key_...
+
+[12 rows x 8 columns]
+[2026-03-29T17:03:02.479659+00:00]                        metric bit_setting  ... p_value_holm significant_0_05
+0    hidden_cosine_similarity           2  ...     1.000000            False
+1    hidden_cosine_similarity           2  ...     1.000000            False
+2    hidden_cosine_similarity           2  ...     1.000000            False
+3    hidden_cosine_similarity           2  ...     1.000000            False
+4    hidden_cosine_similarity           2  ...     1.000000            False
+..                        ...         ...  ...          ...              ...
+247             next_logit_kl           8  ...     1.000000            False
+248             next_logit_kl           8  ...     1.000000            False
+249             next_logit_kl           8  ...     0.088597            False
+250             next_logit_kl           8  ...     1.000000            False
+251             next_logit_kl           8  ...     0.088597            False
+
+[252 rows x 13 columns]

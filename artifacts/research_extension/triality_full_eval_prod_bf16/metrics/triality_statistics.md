@@ -1,0 +1,8 @@
+| metric | view | mode | test | alternative | n_pairs | statistic | p_value | candidate_mean | baseline_mean | delta_candidate_minus_baseline | p_value_holm | significant_0_05 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| hidden_cosine_similarity | vector | key_only_block_so8_triality_vector | wilcoxon | greater | 576 | 5596.5 | 0.7947469969140288 | 0.9996473524305556 | 0.9997965494791666 | -0.00014919704861104943 | 0.8243500427025631 | False |
+| hidden_cosine_similarity | spinor_plus_proxy | key_only_block_so8_triality_plus | wilcoxon | greater | 576 | 5726.5 | 0.18873835055607147 | 0.9998914930555556 | 0.9997965494791666 | 9.494357638895057e-05 | 0.5662150516682144 | False |
+| hidden_cosine_similarity | spinor_minus_proxy | key_only_block_so8_triality_minus | wilcoxon | greater | 576 | 6245.0 | 0.41217502135128153 | 0.9998033311631944 | 0.9997965494791666 | 6.781684027790114e-06 | 0.8243500427025631 | False |
+| next_logit_kl | vector | key_only_block_so8_triality_vector | wilcoxon | less | 576 | 77301.5 | 0.7626167595343216 | 1.163431505366666 | 1.0672141183181205 | 0.09621738704854543 | 0.9381458461982155 | False |
+| next_logit_kl | spinor_plus_proxy | key_only_block_so8_triality_plus | wilcoxon | less | 576 | 73152.0 | 0.19949097526871679 | 0.9032556261449104 | 1.0672141183181205 | -0.16395849217321012 | 0.5984729258061503 | False |
+| next_logit_kl | spinor_minus_proxy | key_only_block_so8_triality_minus | wilcoxon | less | 576 | 76575.0 | 0.46907292309910775 | 1.1550526739016567 | 1.0672141183181205 | 0.08783855558353615 | 0.9381458461982155 | False |

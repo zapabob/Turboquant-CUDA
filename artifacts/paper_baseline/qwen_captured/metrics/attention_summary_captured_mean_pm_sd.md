@@ -1,0 +1,6 @@
+| mode | bit_setting | logit_cosine_mean_pm_sd | logit_cosine_similarity_mean | logit_cosine_similarity_sd | hidden_cosine_mean_pm_sd | hidden_cosine_similarity_mean | hidden_cosine_similarity_sd | memory_ratio_mean_pm_sd | memory_ratio_vs_exact_mean | memory_ratio_vs_exact_sd |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| key_only_random | 2 | 0.992188 +/- 0.000000 | 0.9921875 | 0.0 | 1.000000 +/- 0.000000 | 1.0 | 0.0 | 0.566406 +/- 0.000000 | 0.56640625 | 0.0 |
+| key_only_random | 3 | 1.000000 +/- 0.000000 | 1.0 | 0.0 | 1.000000 +/- 0.000000 | 1.0 | 0.0 | 0.597656 +/- 0.000000 | 0.59765625 | 0.0 |
+| full_kv | 2 | 0.992188 +/- 0.000000 | 0.9921875 | 0.0 | 0.949219 +/- 0.000000 | 0.94921875 | 0.0 | 0.130859 +/- 0.000000 | 0.130859375 | 0.0 |
+| full_kv | 3 | 1.000000 +/- 0.000000 | 1.0 | 0.0 | 0.980469 +/- 0.000000 | 0.98046875 | 0.0 | 0.193359 +/- 0.000000 | 0.193359375 | 0.0 |

@@ -38,7 +38,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=Path("artifacts") / "research_extension" / "triality_pipeline_eval",
         help="research_validate_k_triality --output-dir (default: artifacts/research_extension/triality_pipeline_eval).",
     )
-    parser.add_argument("--bits", default="2,2.5,3,3.5,4")
+    parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
     parser.add_argument("--max-layers", type=int, default=0)
     parser.add_argument("--train-steps", type=int, default=60)
     parser.add_argument("--train-lr", type=float, default=5e-2)
