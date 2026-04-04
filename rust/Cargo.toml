@@ -1,0 +1,7 @@
+[workspace]
+members = ["hypura", "hypura-sys", "kobold_gguf_gui"]
+resolver = "2"
+
+# Shared metadata for workspace crates (hypura / hypura-sys use their own [package].version).
+[workspace.package]
+edition = "2021"

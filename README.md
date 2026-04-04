@@ -7,6 +7,7 @@
 - **何ものか**: TurboQuant の PyTorch 正系再現 + Qwen3.5-9B の **captured KV replay** + K/V 研究（Triality 等）。**Windows + `uv` + Python 3.12.x**；GPU は `uv sync --extra cu128`。
 - **まず読む順**: 検証は **synthetic → attention → captured**。クイックスタートは `env_check` → `pytest` → `paper_validate_*`（本文のコマンドブロック）。
 - **本番の流れ**: `capture_qwen_kv.py` → `paper_validate_captured_qwen.py` →（任意）`run_triality_full_pipeline.py` または学習済みなら `research_validate_k_triality.py`（**再開は `--resume`**、同一 `--output-dir` に並列起動しない）。
+- **K 側の実用正系（オフライン）**: **Multiscreen 関連度**でチャネルごとにビットを振り、`SO(8)` ブロック回転の **Triality proxy（vector ビュー）** に載せた **TurboQuant Stage 1+2** を captured KV で評価する。既定モードは `key_only_block_so8_triality_vector`（`k_triality.PRODUCTION_K_TURBOQUANT_*`）。クイック検証: `research_validate_multiscreen_kv.py`、VRAM 比較: `research_vram_multigroup_qwen.py`。
 - **定性的結論（captured）**: 論文忠実 **`full_kv`** は **`key_only_random` より hidden / attention 誤差が先に悪化しやすい**一方、logit 側はこのデータでは差が出にくい。数値・統計・図は本文後半と `artifacts/paper_baseline/`、`artifacts/research_extension/triality_full_eval_prod_bf16/`。
 - **README の読み方**: 見出しは **日英併記**；本文は **JA** のあと **EN**。コードと表は原則1本。
 
@@ -15,6 +16,7 @@
 - **What**: Paper-faithful TurboQuant in PyTorch, Qwen3.5-9B **captured KV replay**, and K/V research (Triality, etc.). **Windows + `uv` + Python 3.12.x**; CUDA via `uv sync --extra cu128`.
 - **Order of operations**: Validate **synthetic → attention → captured**. Quick path: `env_check` → `pytest` → `paper_validate_*` (see command blocks below).
 - **Production-ish flow**: `capture_qwen_kv.py` → `paper_validate_captured_qwen.py` → optionally `run_triality_full_pipeline.py`, or **`research_validate_k_triality.py`** if rotations exist (**`--resume`** for long evals; never race one `--output-dir`).
+- **Production K path (offline)**: **Multiscreen relevance** assigns per-channel bit budgets; **Triality SO(8) proxy** (vector view) + **TurboQuant** Stage 1+2 on captured KV. Default mode: **`key_only_block_so8_triality_vector`** (`k_triality.PRODUCTION_K_TURBOQUANT_*`). Quick eval: `research_validate_multiscreen_kv.py`; VRAM sweep: `research_vram_multigroup_qwen.py`.
 - **Qualitative takeaway (captured)**: Paper-faithful **`full_kv`** tends to hurt **hidden / attention error before logits** vs **`key_only_random`** in this setup. Numbers, stats, plots: later sections, `artifacts/paper_baseline/`, `artifacts/research_extension/triality_full_eval_prod_bf16/`.
 - **How to read this file**: Headings are **bilingual**; prose is **JA** then **EN**. Commands and tables are mostly single-copy.
 
@@ -61,7 +63,7 @@
 | 層 | 役割 |
 | --- | --- |
 | `turboquant.paper_baseline` | 論文忠実 Stage 1 / Stage 2（PyTorch のみ） |
-| `turboquant.research_extension` | K/V codec、V 感度、protected-V、low-rank、Triality proxy |
+| `turboquant.research_extension` | K/V codec、V 感度、protected-V、low-rank、**Multiscreen KV**、**Triality SO(8) proxy**、本番 K 向け TurboQuant モード |
 | `turboquant.adapters.hf_qwen` | 任意: HF / Qwen の KV キャプチャと replay |
 
 正系の検証順序は **synthetic → attention → captured**（オフラインが正しいことを先に固める）。
@@ -71,10 +73,33 @@
 | Layer | Role |
 | --- | --- |
 | `turboquant.paper_baseline` | Paper-faithful Stage 1 / Stage 2 (PyTorch only) |
-| `turboquant.research_extension` | K/V codecs, V sensitivity, protected-V, low-rank, Triality proxy |
+| `turboquant.research_extension` | K/V codecs, V sensitivity, protected-V, low-rank, **Multiscreen KV**, **Triality SO(8) proxy**, production-oriented TurboQuant K modes |
 | `turboquant.adapters.hf_qwen` | Optional: HF/Qwen KV capture and replay |
 
 Recommended validation order: **synthetic → attention → captured** (lock offline correctness first).
+
+---
+
+## Multiscreen + SO(8) 回転 Triality + TurboQuant / Multiscreen + SO(8) Triality + TurboQuant
+
+**JA（要点）**
+
+- **背景**: [Screening Is Enough](https://www.alphaxiv.org/abs/2604.01178) 系の **Multiscreen / screening** 着想に沿い、captured KV 上で **K のチャネル重要度（relevance）** から mixed-bit 割当を作り、**TurboQuant** の Stage 1（球面 Lloyd–Max）と Stage 2（内積推定 + QJL）へ渡す研究パスがある（`turboquant.research_extension.multiscreen_kv`）。
+- **SO(8) と Triality**: ヘッド次元を **8 次元ブロック**に分割し、`SO(8)` 上の **Triality proxy**（`triality_proxy.py` の複数ビュー）で回転をかけたうえで K 側のみ量子化するモード群がある。オフラインの **実用正系 K** として **`vector` ビュー + `key_only_block_so8_triality_vector`** を推奨（`PRODUCTION_K_TURBOQUANT_MODE` / `PRODUCTION_K_TURBOQUANT_VIEW` in `k_triality.py`）。学習済み回転は `research_train_k_triality.py` → `rotations/*.pt`、`--rotation-dir` で読み込み。
+- **論文 baseline との関係**: `key_only_random` や static/learned `SO(8)`、`full_kv` は **再現性・消融** 用。本番 K の参照点は上記 **Triality vector + TurboQuant**（コードと `AGENTS.md` / `CLAUDE.md` 参照）。
+- **主なスクリプト**
+  - **`scripts/research_validate_multiscreen_kv.py`** — captured KV でキー側モードを切替。`--mode` 省略時は **`key_only_block_so8_triality_vector`**（Triality + TurboQuant）。`multiscreen_relevance` や `multiscreen_triality_vector` 等は `captured_kv_modes` 経由。
+  - **`scripts/research_vram_multigroup_qwen.py`** — 複数モード（exact / multiscreen / triality 等）の **VRAM・KV フットプリント** を同一 captured 根で比較（CSV/MD/図）。
+  - **`scripts/run_triality_full_pipeline.py`** — Triality 回転の学習 → `research_validate_k_triality.py` 評価まで一括。
+- **任意依存**: upstream [multiscreen-pytorch](https://github.com/zapabob/multiscreen-pytorch) との **数値パリティ** は `pyproject.toml` の `multiscreen_parity` extra と `tests/test_multiscreen_parity_optional.py`（環境に無ければスキップ可）。
+
+**EN (summary)**
+
+- **Multiscreen**: relevance-driven **mixed-bit** key quantization on captured KV, wired into **TurboQuant** Stage 1 + Stage 2 (`multiscreen_kv`).
+- **SO(8) Triality**: block rotations with **Triality proxy views**; **production K** defaults to **`vector`** + **`key_only_block_so8_triality_vector`** (`k_triality.py`). Train rotations with `research_train_k_triality.py`, load with `--rotation-dir`.
+- **Baselines**: `key_only_random`, static/learned SO(8), `full_kv` remain **ablations / paper replay**. The **reference K path** for practical offline eval is **Triality vector + TurboQuant** (see `AGENTS.md` / `CLAUDE.md`).
+- **Scripts**: `research_validate_multiscreen_kv.py` (default mode = production Triality), `research_vram_multigroup_qwen.py` (VRAM / footprint multi-group), `run_triality_full_pipeline.py` (train → eval).
+- **Optional**: `multiscreen_parity` extra for optional parity tests against upstream PyTorch.
 
 ## ライセンス / License
 
@@ -453,7 +478,7 @@ uv run python scripts\research_validate_k_triality.py `
 | JA: 区分 | EN: Category | Paths |
 | --- | --- | --- |
 | 論文 baseline | Paper baseline | `scripts/paper_validate_synthetic.py`, `paper_validate_attention.py`, `paper_validate_captured_qwen.py` |
-| 研究拡張 | Research | `scripts/research_validate_v_codecs.py`, `research_value_sensitivity.py`, `run_triality_full_pipeline.py`, `research_train_k_triality.py`, `research_validate_k_triality.py`, `plot_triality_advantage.py` |
+| 研究拡張 | Research | `scripts/research_validate_v_codecs.py`, `research_value_sensitivity.py`, `research_validate_multiscreen_kv.py`, `research_vram_multigroup_qwen.py`, `run_triality_full_pipeline.py`, `research_train_k_triality.py`, `research_validate_k_triality.py`, `plot_triality_advantage.py` |
 | HF / Qwen | HF / Qwen | `scripts/capture_qwen_kv.py`, `validate_attention_scores.py`, `export_report.py`, `env_check.py`, `benchmark_encode_decode.py` |
 
 ---

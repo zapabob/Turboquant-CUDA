@@ -7,6 +7,7 @@ import torch
 from turboquant.allocation import ChannelBitAllocation
 from turboquant.research_extension.multiscreen_kv import (
     compute_k_relevance,
+    expand_relevance_bitwidths_to_key_shape,
     multiscreen_relevance_topk_indices,
 )
 
@@ -58,6 +59,19 @@ def test_make_bitwidths_from_relevance() -> None:
     assert bits.dtype == torch.int64
     high = (bits == 4).sum().item()
     assert high == 2
+
+
+def test_expand_relevance_bitwidths_to_key_shape() -> None:
+    b, h, s, d = 1, 2, 4, 8
+    relevance = torch.rand(b, h, s)
+    alloc = ChannelBitAllocation.from_multiscreen_relevance(
+        regular_bits=2,
+        outlier_bits=4,
+        outlier_count=3,
+    )
+    bw = expand_relevance_bitwidths_to_key_shape(relevance, alloc, d)
+    assert bw.shape == (b, h, s, d)
+    assert set(int(x) for x in bw.unique().tolist()) <= {2, 4}
 
 
 def test_make_bitwidths_from_relevance_zero_outliers() -> None:

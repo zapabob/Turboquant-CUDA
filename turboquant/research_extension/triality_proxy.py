@@ -14,6 +14,7 @@ import torch
 from turboquant.allocation import ChannelBitAllocation
 from turboquant.turboquant_mse import TurboQuantMSE
 from turboquant.turboquant_prod import TurboQuantProd
+from turboquant.types import QuantizedProdBatch
 
 
 TRIALITY_PROXY_VIEWS = (
@@ -135,6 +136,14 @@ class TrialityProxyProd:
 
     def quantize(self, x: torch.Tensor, allocation: ChannelBitAllocation | None = None):
         return self.quantizer.quantize(apply_triality_proxy_view(x, self.view), allocation=allocation)
+
+    def quantize_with_bitwidths(self, x: torch.Tensor, bitwidths: torch.Tensor) -> QuantizedProdBatch:
+        """Stage-1 per-element bits in proxy space (e.g. Multiscreen relevance on original ``q,k``)."""
+
+        if bitwidths.shape != x.shape:
+            raise ValueError(f"Expected bitwidths shape {tuple(x.shape)}, got {tuple(bitwidths.shape)}")
+        view_x = apply_triality_proxy_view(x, self.view)
+        return self.quantizer.quantize_with_bitwidths(view_x, bitwidths)
 
     def dequantize(self, encoded) -> torch.Tensor:
         decoded = self.quantizer.dequantize(encoded)

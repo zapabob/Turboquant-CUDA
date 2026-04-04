@@ -33,6 +33,9 @@ hf_qwen = [
   "sentencepiece>=0.2",
   "transformers>=4.52",
 ]
+multiscreen_parity = [
+  "multiscreen-pytorch @ git+https://github.com/zapabob/multiscreen-pytorch.git",
+]
 
 [tool.uv.sources]
 torch = [

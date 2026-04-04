@@ -32,6 +32,7 @@ from turboquant.analysis import (
 )
 from turboquant.attention_metrics import summarize_attention_scores
 from turboquant.rotation import so8_block_diagonal_rotation_metrics
+from turboquant.research_extension.multiscreen_kv import compute_k_relevance, expand_relevance_bitwidths_to_key_shape
 from turboquant.research_extension.triality_proxy import TRIALITY_PROXY_VIEWS, TrialityProxyProd
 from turboquant.turboquant_prod import TurboQuantProd
 from turboquant.types import TurboQuantProdConfig
@@ -65,6 +66,17 @@ ROTATION_COMPARE_MODES: tuple[str, ...] = (
     "full_kv",
 )
 TRIALITY_SELECTOR_MODE = "key_only_block_so8_triality_best_per_layer"
+
+# --- Production canonical K-side TurboQuant (実用正系) ---------------------------------
+# Offline replay / shipping recommendation: per-layer fitted block-SO(8) proxy rotations
+# with the **vector** triality view, Stage 1+2 TurboQuantProd path (`k_triality._evaluate_triality_proxy_mode`).
+# Paper modes (`key_only_random`, static SO8 without triality, etc.) remain ablation / reproducibility baselines.
+PRODUCTION_K_TURBOQUANT_VIEW: str = "vector"
+PRODUCTION_K_TURBOQUANT_MODE: str = "key_only_block_so8_triality_vector"
+DEFAULT_PRODUCTION_TRIALITY_ROTATION_DIR: str = "artifacts/research_extension/triality_full_train/rotations"
+
+# Learned Triality (vector) rotations + Multiscreen relevance mixed-bit Stage-1 keys (combined eval row).
+MULTISCREEN_TRIALITY_VECTOR_MODE: str = "multiscreen_triality_vector"
 
 
 def bit_setting_sort_key(label: str) -> tuple[int, float]:
@@ -433,6 +445,112 @@ def _evaluate_triality_proxy_mode(
         "value_rotation_policy": "exact",
         "rotation_seed": artifact.rotation_seed,
         "qjl_seed": artifact.qjl_seed,
+    }
+
+
+def evaluate_multiscreen_triality_vector_row(
+    *,
+    dataset: str,
+    trial: int,
+    layer_idx: int,
+    bit_value: float,
+    keys: torch.Tensor,  # [batch, heads, seq, head_dim]
+    values: torch.Tensor,
+    queries: torch.Tensor,
+    allocation: ChannelBitAllocation,
+    artifact: TrialityRotationArtifact,
+) -> dict[str, float | int | str]:
+    """Key-only row: Multiscreen relevance bit map + fitted Triality vector proxy (learned SO(8) rotation)."""
+
+    device = keys.device
+    head_dim = keys.shape[-1]
+    n_rel = int(keys.shape[0] * keys.shape[1] * keys.shape[2])
+    oc = min(allocation.outlier_count, n_rel)
+    alloc_use = (
+        allocation
+        if oc == allocation.outlier_count
+        else ChannelBitAllocation.from_multiscreen_relevance(
+            regular_bits=allocation.regular_bits,
+            outlier_bits=allocation.outlier_bits,
+            outlier_count=oc,
+        )
+    )
+
+    quantizer = TurboQuantProd(
+        TurboQuantProdConfig(
+            dim=head_dim,
+            total_bits=int(math.floor(bit_value)),
+            rotation_seed=artifact.rotation_seed,
+            rotation_policy="block_so8_static",
+            qjl_seed=artifact.qjl_seed,
+            device=_canonical_device_name(torch.device(device)),
+            dtype=str(keys.dtype).split(".")[-1],
+        )
+    )
+    proxy = TrialityProxyProd(quantizer=quantizer, view="vector")
+    proxy.set_rotation(artifact.rotation.to(device=device, dtype=keys.dtype))
+
+    relevance = compute_k_relevance(queries, keys)
+    bitwidths = expand_relevance_bitwidths_to_key_shape(relevance, alloc_use, head_dim)
+
+    exact_logits = torch.einsum("...qd,...sd->...qs", queries, keys)
+    exact_hidden = scaled_attention_output(exact_logits, values, head_dim=head_dim)
+    exact_memory_bits = raw_storage_bits(keys) + raw_storage_bits(values)
+
+    _sync_if_cuda(device)
+    _reset_peak_if_cuda(device)
+    started = time.perf_counter()
+    encoded_keys = proxy.quantize_with_bitwidths(keys, bitwidths)
+    estimated_logits = proxy.pairwise_estimate(queries, encoded_keys)
+    _sync_if_cuda(device)
+    prefill_seconds = time.perf_counter() - started
+
+    _sync_if_cuda(device)
+    decode_started = time.perf_counter()
+    last_query = queries[..., -1:, :]
+    decode_logits = proxy.pairwise_estimate(last_query, encoded_keys)
+    _ = scaled_attention_output(decode_logits, values, head_dim=head_dim)
+    _sync_if_cuda(device)
+    decode_seconds = time.perf_counter() - decode_started
+
+    hidden = scaled_attention_output(estimated_logits, values, head_dim=head_dim)
+    logit_metrics = summarize_attention_scores(exact_logits, estimated_logits)
+    hidden_metrics = summarize_attention_scores(exact_hidden, hidden)
+    memory_bits = float(encoded_keys.total_bits() + raw_storage_bits(values))
+    bit_setting = f"{bit_value:g}"
+    return {
+        "dataset": dataset,
+        "trial": trial,
+        "layer": layer_idx,
+        "mode": MULTISCREEN_TRIALITY_VECTOR_MODE,
+        "bit_setting": bit_setting,
+        "bits": float(bit_value),
+        "view": "vector",
+        "logit_cosine_similarity": logit_metrics["cosine_similarity"],
+        "logit_mae": logit_metrics["mae"],
+        "logit_mse": logit_metrics["mse"],
+        "next_logit_kl": logit_metrics["kl_divergence"],
+        "logit_spearman": logit_metrics["spearman"],
+        "logit_top1_match": logit_metrics["top1_match"],
+        "logit_top5_match": logit_metrics["top5_match"],
+        "logit_top5_overlap": logit_metrics["top5_overlap"],
+        "hidden_cosine_similarity": hidden_metrics["cosine_similarity"],
+        "hidden_mae": hidden_metrics["mae"],
+        "hidden_mse": hidden_metrics["mse"],
+        "attention_output_relative_error": hidden_metrics["relative_fro_error"],
+        "memory_bits": memory_bits,
+        "memory_ratio_vs_exact": memory_bits / float(exact_memory_bits),
+        "prefill_seconds": prefill_seconds,
+        "decode_seconds": decode_seconds,
+        "peak_vram_mb": _peak_vram_mb(device),
+        "key_mode": MULTISCREEN_TRIALITY_VECTOR_MODE,
+        "value_mode": "exact",
+        "value_rotation_policy": "exact",
+        "rotation_seed": artifact.rotation_seed,
+        "qjl_seed": artifact.qjl_seed,
+        "multiscreen_regular_bits": alloc_use.regular_bits,
+        "multiscreen_outlier_bits": alloc_use.outlier_bits,
+        "multiscreen_outlier_count": alloc_use.outlier_count,
     }
 
 

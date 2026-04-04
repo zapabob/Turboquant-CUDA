@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import math
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, cast
 
 import pandas as pd
 import torch
@@ -14,9 +14,9 @@ import torch
 from turboquant.allocation import ChannelBitAllocation
 from turboquant.attention_metrics import summarize_attention_scores
 from turboquant.capture import CaptureMetadata, load_capture_metadata
-from turboquant.kv_codec import KVCodec, KVCodecConfig
+from turboquant.kv_codec import AttentionScoreEstimator, KVCodec, KVCodecConfig
 from turboquant.reporting import summarize_metric_trials
-from turboquant.types import TurboQuantMSEConfig, TurboQuantProdConfig
+from turboquant.types import RotationPolicy, TurboQuantMSEConfig, TurboQuantProdConfig
 from turboquant.turboquant_mse import TurboQuantMSE
 from turboquant.turboquant_prod import TurboQuantProd
 from turboquant.types import SensitivitySpec
@@ -409,6 +409,106 @@ def _evaluate_mode(
     if mode_metadata is not None:
         row.update(mode_metadata)
     return row
+
+
+def evaluate_multiscreen_relevance_attention_row(
+    *,
+    dataset: str,
+    trial: int,
+    layer_idx: int,
+    bit_value: float,
+    keys: torch.Tensor,  # [batch, heads, seq, head_dim]
+    values: torch.Tensor,
+    queries: torch.Tensor,
+    allocation: ChannelBitAllocation,
+    rotation_policy: str,
+    rotation_seed: int,
+    qjl_seed: int,
+) -> dict[str, float | int | str]:
+    """Key-only paper-style attention row with Multiscreen-derived per-position Stage-1 bitwidths."""
+
+    from turboquant.research_extension.multiscreen_kv import (
+        compute_k_relevance,
+        expand_relevance_bitwidths_to_key_shape,
+    )
+
+    device = keys.device
+    head_dim = keys.shape[-1]
+    integer_bits = int(math.floor(bit_value))
+    key_prod = TurboQuantProd(
+        TurboQuantProdConfig(
+            dim=head_dim,
+            total_bits=integer_bits,
+            rotation_seed=rotation_seed,
+            rotation_policy=cast(RotationPolicy, rotation_policy),
+            qjl_seed=qjl_seed,
+            device=str(device),
+            dtype=dtype_name(keys.dtype),
+        )
+    )
+    relevance = compute_k_relevance(queries, keys)  # [batch, heads, seq]
+    bitwidths = expand_relevance_bitwidths_to_key_shape(relevance, allocation, head_dim)
+
+    exact_logits = torch.einsum("...qd,...sd->...qs", queries, keys)
+    exact_hidden = scaled_attention_output(exact_logits, values, head_dim=head_dim)
+    exact_memory_bits = raw_storage_bits(keys) + raw_storage_bits(values)
+
+    estimator = AttentionScoreEstimator(key_prod)
+    _sync_if_cuda(device)
+    _reset_peak_if_cuda(device)
+    started = time.perf_counter()
+    encoded_keys = key_prod.quantize_with_bitwidths(keys, bitwidths)
+    estimated_logits = estimator.turboquant(queries, encoded_keys)
+    _sync_if_cuda(device)
+    prefill_seconds = time.perf_counter() - started
+
+    _sync_if_cuda(device)
+    decode_started = time.perf_counter()
+    last_query = queries[..., -1:, :]
+    decode_logits = estimator.turboquant(last_query, encoded_keys)
+    _ = scaled_attention_output(decode_logits, values, head_dim=head_dim)
+    _sync_if_cuda(device)
+    decode_seconds = time.perf_counter() - decode_started
+
+    hidden = scaled_attention_output(estimated_logits, values, head_dim=head_dim)
+    logit_metrics = summarize_attention_scores(exact_logits, estimated_logits)
+    hidden_metrics = summarize_attention_scores(exact_hidden, hidden)
+
+    memory_bits = float(encoded_keys.total_bits() + raw_storage_bits(values))
+    bit_setting = f"{bit_value:g}"
+    return {
+        "dataset": dataset,
+        "trial": trial,
+        "layer": layer_idx,
+        "mode": "multiscreen_relevance",
+        "bit_setting": bit_setting,
+        "bits": float(bit_value),
+        "logit_cosine_similarity": logit_metrics["cosine_similarity"],
+        "logit_mae": logit_metrics["mae"],
+        "logit_mse": logit_metrics["mse"],
+        "next_logit_kl": logit_metrics["kl_divergence"],
+        "logit_spearman": logit_metrics["spearman"],
+        "logit_top1_match": logit_metrics["top1_match"],
+        "logit_top5_match": logit_metrics["top5_match"],
+        "logit_top5_overlap": logit_metrics["top5_overlap"],
+        "hidden_cosine_similarity": hidden_metrics["cosine_similarity"],
+        "hidden_mae": hidden_metrics["mae"],
+        "hidden_mse": hidden_metrics["mse"],
+        "attention_output_relative_error": hidden_metrics["relative_fro_error"],
+        "memory_bits": memory_bits,
+        "memory_ratio_vs_exact": memory_bits / float(exact_memory_bits),
+        "prefill_seconds": prefill_seconds,
+        "decode_seconds": decode_seconds,
+        "peak_vram_mb": _peak_vram_mb(device),
+        "key_mode": "multiscreen_relevance",
+        "value_mode": "exact",
+        "value_rotation_policy": "exact",
+        "rotation_seed": rotation_seed,
+        "qjl_seed": qjl_seed,
+        "multiscreen_regular_bits": allocation.regular_bits,
+        "multiscreen_outlier_bits": allocation.outlier_bits,
+        "multiscreen_outlier_count": allocation.outlier_count,
+    }
 
 
 def _evaluate_value_decoder_mode(

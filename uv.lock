@@ -433,6 +433,20 @@ wheels = [
 ]
 
 [[package]]
+name = "multiscreen-pytorch"
+version = "0.1.0"
+source = { git = "https://github.com/zapabob/multiscreen-pytorch.git#1dfb8f3d346cbf9fe9395f5176bb2f460e10bf91" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pydantic" },
+    { name = "torch" },
+    { name = "tqdm" },
+    { name = "transformers" },
+]
+
+[[package]]
 name = "narwhals"
 version = "2.18.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1065,12 +1079,16 @@ hf-qwen = [
     { name = "sentencepiece" },
     { name = "transformers" },
 ]
+multiscreen-parity = [
+    { name = "multiscreen-pytorch" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'hf-qwen'", specifier = ">=1.5" },
     { name = "bitsandbytes", marker = "extra == 'hf-qwen'", specifier = ">=0.45" },
     { name = "matplotlib", specifier = ">=3.9" },
+    { name = "multiscreen-pytorch", marker = "extra == 'multiscreen-parity'", git = "https://github.com/zapabob/multiscreen-pytorch.git" },
     { name = "numpy", specifier = ">=2.1" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "plotly", specifier = ">=6.0" },
@@ -1083,7 +1101,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67" },
     { name = "transformers", marker = "extra == 'hf-qwen'", specifier = ">=4.52" },
 ]
-provides-extras = ["cu128", "dev", "hf-qwen"]
+provides-extras = ["cu128", "dev", "hf-qwen", "multiscreen-parity"]
 
 [[package]]
 name = "typer"

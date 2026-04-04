@@ -1,4 +1,9 @@
-.specstory/
+﻿.specstory/
+
+rust/target/
+
+# Local model checkout (nested git repo); do not commit
+Huihui-Qwen3.5-27B-abliterated/
 
 .venv/
 .venv-*/

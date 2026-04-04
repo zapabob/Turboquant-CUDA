@@ -14,7 +14,12 @@ ResearchViewSelection = Literal["report_all", "best_per_layer"]
 
 @dataclass(slots=True)
 class KeyResearchConfig:
-    """Research configuration for key-side score-preserving experiments."""
+    """Research configuration for key-side score-preserving experiments.
+
+    For the **production canonical** K path (Triality SO(8) + TurboQuant), use
+    ``view_mode="triality_proxy"`` and prioritize the ``"vector"`` view; see
+    ``PRODUCTION_K_TURBOQUANT_MODE`` in ``turboquant.research_extension.k_triality``.
+    """
 
     head_dim: int
     bits_total: int = 3

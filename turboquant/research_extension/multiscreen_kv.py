@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import torch
 
+from turboquant.allocation import ChannelBitAllocation
+
 
 def normalize_unit(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     """Unit-normalize along the last dimension. Shape: [..., d] -> [..., d]."""
@@ -81,6 +83,26 @@ def compute_k_relevance(
 
     # K 位置ごとに全 Query の最大 relevance を取る: [batch, heads, k_len]
     return alpha.max(dim=-2).values
+
+
+def expand_relevance_bitwidths_to_key_shape(
+    relevance: torch.Tensor,  # [batch, heads, k_len]
+    allocation: ChannelBitAllocation,
+    head_dim: int,
+) -> torch.Tensor:
+    """Map flattened Multiscreen relevance bitwidths to key tensor shape ``[..., head_dim]``.
+
+    ``make_bitwidths_from_relevance`` picks global top-``outlier_count`` positions over
+    flattened ``(batch, heads, k_len)``; this expands so every channel at position
+    ``(b,h,s)`` uses the same Stage-1 bitwidth.
+    """
+
+    if relevance.ndim != 3:
+        raise ValueError(f"relevance must be [batch, heads, k_len], got shape {tuple(relevance.shape)}")
+    b, h, k_len = relevance.shape
+    flat_bits = allocation.make_bitwidths_from_relevance(relevance)
+    bits_3d = flat_bits.view(b, h, k_len)
+    return bits_3d.unsqueeze(-1).expand(b, h, k_len, head_dim).contiguous()
 
 
 def multiscreen_relevance_topk_indices(

@@ -9,7 +9,7 @@ import torch
 from turboquant.allocation import ChannelBitAllocation
 from turboquant.qjl import GaussianSignSketch
 from turboquant.turboquant_mse import TurboQuantMSE
-from turboquant.types import QuantizedProdBatch, TurboQuantMSEConfig, TurboQuantProdConfig
+from turboquant.types import QuantizedMSEBatch, QuantizedProdBatch, TurboQuantMSEConfig, TurboQuantProdConfig
 
 
 class TurboQuantProd:
@@ -49,6 +49,19 @@ class TurboQuantProd:
         if x.dtype != self.dtype:
             raise ValueError(f"Expected x dtype {self.dtype}, got {x.dtype}")
         mse_encoded = self.mse_quantizer.quantize(x=x, allocation=allocation)
+        return self._finish_prod_batch(x, mse_encoded)
+
+    def quantize_with_bitwidths(self, x: torch.Tensor, bitwidths: torch.Tensor) -> QuantizedProdBatch:
+        """Stage 1 with per-element bitwidths (e.g. Multiscreen relevance), then QJL on residual."""
+
+        if x.device != self.device:
+            raise ValueError(f"Expected x on {self.device}, got {x.device}")
+        if x.dtype != self.dtype:
+            raise ValueError(f"Expected x dtype {self.dtype}, got {x.dtype}")
+        mse_encoded = self.mse_quantizer.quantize_with_bitwidths(x=x, bitwidths=bitwidths)
+        return self._finish_prod_batch(x, mse_encoded)
+
+    def _finish_prod_batch(self, x: torch.Tensor, mse_encoded: QuantizedMSEBatch) -> QuantizedProdBatch:
         mse_reconstruction = self.mse_quantizer.dequantize(mse_encoded)
         residual = x - mse_reconstruction
         qjl_sketch = self.qjl.encode(residual)

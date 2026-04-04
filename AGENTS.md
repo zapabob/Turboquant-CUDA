@@ -47,6 +47,7 @@ correct.
 - Keep exact-score and estimated-score evaluation separate.
 - Validate inner-product bias explicitly.
 - Report both reconstruction metrics and attention/logit metrics.
+- **Production K-side reference (実用正系):** Triality SO(8) proxy with the **vector** view and mode `key_only_block_so8_triality_vector` (`PRODUCTION_K_TURBOQUANT_MODE` in `k_triality.py`); paper random/static modes are ablations unless explicitly chosen.
 
 ## Reproducibility rules
 

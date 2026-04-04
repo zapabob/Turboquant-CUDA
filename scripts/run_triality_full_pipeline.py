@@ -29,14 +29,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--train-output-dir",
         type=Path,
-        default=Path("artifacts") / "research_extension" / "triality_pipeline_train",
-        help="Where fit_triality writes metrics/ and rotations/ (default: artifacts/research_extension/triality_pipeline_train).",
+        default=Path("artifacts") / "research_extension" / "triality_full_train",
+        help="Where fit_triality writes metrics/ and rotations/ (default: artifacts/research_extension/triality_full_train; matches PRODUCTION rotation path).",
     )
     parser.add_argument(
         "--eval-output-dir",
         type=Path,
-        default=Path("artifacts") / "research_extension" / "triality_pipeline_eval",
-        help="research_validate_k_triality --output-dir (default: artifacts/research_extension/triality_pipeline_eval).",
+        default=Path("artifacts") / "research_extension" / "triality_full_eval",
+        help="research_validate_k_triality --output-dir (default: artifacts/research_extension/triality_full_eval).",
     )
     parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
     parser.add_argument("--max-layers", type=int, default=0)

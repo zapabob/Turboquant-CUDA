@@ -1,0 +1,7 @@
+# Faster iterative rebuilds: keep incremental artifacts (default for dev profile).
+[build]
+incremental = true
+
+# Optional: native CPU tuning for pure Rust crates (llama.cpp still uses CMake/NVCC).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=native"]

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/downl/Desktop/hypura-main/hypura-main/src/**)",
+      "Read(//c/Users/downl/Desktop/hypura-main/hypura-main/scripts/**)"
+    ]
+  }
+}
