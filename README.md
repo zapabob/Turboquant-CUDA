@@ -22,6 +22,24 @@
 
 **EN (one-liner)** Reproduces the TurboQuant paper baseline in PyTorch, runs Qwen3.5-9B captured KV replay, and hosts K/V research extensions (Triality, etc.) on **Windows** with **`uv`** and Python **3.12.x**.
 
+## 関連リポジトリ / Related Repositories
+
+**JA**
+
+| リポジトリ | 役割 |
+| --- | --- |
+| [zapabob/multiscreen-pytorch](https://github.com/zapabob/multiscreen-pytorch) | Multiscreen アーキテクチャの PyTorch 正系実装。`trim_and_square` + MiPE による KV 重要度スコアリングを `research_extension` へフィードバック予定 |
+| [zapabob/Hypura](https://github.com/zapabob/Hypura) | GPU/RAM/NVMe 階層推論スケジューラ。Multiscreen の KV ウィンドウ上限と組み合わせて VRAM 削減 |
+| [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) | TrialityS08 回転 + Turboquant 対応 llama.cpp フォーク |
+
+**EN**
+
+| Repository | Role |
+| --- | --- |
+| [zapabob/multiscreen-pytorch](https://github.com/zapabob/multiscreen-pytorch) | PyTorch reference implementation of the Multiscreen architecture. `trim_and_square` + MiPE KV relevance scoring to be integrated into `research_extension` |
+| [zapabob/Hypura](https://github.com/zapabob/Hypura) | GPU/RAM/NVMe tiered inference scheduler. Combined with Multiscreen KV window cap for VRAM reduction |
+| [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) | llama.cpp fork with TrialityS08 rotation + Turboquant support |
+
 ## 立場（要約） / Position (summary)
 
 **JA**
