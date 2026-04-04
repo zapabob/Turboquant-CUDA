@@ -51,6 +51,58 @@ class ChannelBitAllocation:
         ratio = self.outlier_ratio(width)
         return (self.regular_bits * (1.0 - ratio)) + (self.outlier_bits * ratio)
 
+    @classmethod
+    def from_multiscreen_relevance(
+        cls,
+        regular_bits: int,
+        outlier_bits: int,
+        outlier_count: int,
+    ) -> "ChannelBitAllocation":
+        """Build allocation config for Multiscreen relevance-based outlier selection.
+
+        Use :meth:`make_bitwidths_from_relevance` with a relevance tensor to obtain
+        per-position bitwidths.
+        """
+        return cls(
+            regular_bits=regular_bits,
+            outlier_bits=outlier_bits,
+            outlier_count=outlier_count,
+            selection_policy="multiscreen-relevance",
+        )
+
+    def make_bitwidths_from_relevance(self, relevance: torch.Tensor) -> torch.Tensor:
+        """Select outlier K positions by Multiscreen relevance score.
+
+        ``relevance`` may be any shape; indices are chosen among all elements via
+        global top-``outlier_count``. Returns a 1D tensor of length ``relevance.numel()``
+        with dtype ``torch.int64`` (bits per flattened position).
+
+        Args:
+            relevance: Non-negative importance scores (larger = keep more bits).
+
+        Returns:
+            One int64 bitwidth per element of ``relevance``, ``outlier_bits`` on
+            the ``outlier_count`` highest-relevance positions and ``regular_bits``
+            elsewhere.
+        """
+        if self.selection_policy != "multiscreen-relevance":
+            raise ValueError(
+                f"make_bitwidths_from_relevance requires selection_policy="
+                f"'multiscreen-relevance', got {self.selection_policy!r}"
+            )
+        flat = relevance.detach().flatten()
+        n = flat.numel()
+        if self.outlier_count > n:
+            raise ValueError(
+                f"outlier_count={self.outlier_count} exceeds relevance numel={n}"
+            )
+        if self.outlier_count == 0:
+            return torch.full((n,), self.regular_bits, dtype=torch.int64, device=flat.device)
+        bitwidths = torch.full((n,), self.regular_bits, dtype=torch.int64, device=flat.device)
+        _, topk_idx = torch.topk(flat, k=self.outlier_count)
+        bitwidths[topk_idx] = self.outlier_bits
+        return bitwidths
+
     def make_bitwidths(self, values: torch.Tensor) -> torch.Tensor:
         """Select outlier coordinates along the last dimension.
 

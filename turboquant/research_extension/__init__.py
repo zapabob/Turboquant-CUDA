@@ -8,6 +8,13 @@ from turboquant.research_extension.evaluation import (
     filter_v_ablation_rows,
     synthetic_v_ablation_rows,
 )
+from turboquant.research_extension.multiscreen_kv import (
+    build_mipe_factor,
+    compute_k_relevance,
+    multiscreen_relevance_topk_indices,
+    normalize_unit,
+    trim_and_square,
+)
 from turboquant.research_extension.k_triality import (
     ROTATION_COMPARE_MODES,
     TRIALITY_SELECTOR_MODE,
@@ -38,6 +45,11 @@ from turboquant.research_extension.types import KeyResearchConfig, ValueResearch
 from turboquant.value_codec import ProtectedValueCodec
 
 __all__ = [
+    "build_mipe_factor",
+    "compute_k_relevance",
+    "multiscreen_relevance_topk_indices",
+    "normalize_unit",
+    "trim_and_square",
     "KeyResearchConfig",
     "ProtectedValueCodec",
     "TRIALITY_MODE_BY_VIEW",
