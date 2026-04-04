@@ -20,18 +20,21 @@ from turboquant.io_utils import ensure_dir
 from turboquant.research_extension import (
     KeyResearchConfig,
     ROTATION_COMPARE_MODES,
+    TRIALITY_SELECTOR_MODE,
     TRIALITY_PROXY_VIEWS,
     ValueResearchConfig,
     bit_setting_sort_key,
+    build_best_per_layer_selector,
     compute_friedman_rotation_mode_statistics,
     compute_pairwise_wilcoxon_rotation_modes,
+    compute_triality_selector_statistics,
     compute_triality_statistics,
     evaluate_triality_proxy_captured,
 )
 from turboquant.schema import build_research_turboquant_config, write_turboquant_config
 
 
-ARTIFACT_ROOT = Path("artifacts") / "research_extension" / "triality_k_only_eval"
+ARTIFACT_ROOT = Path("artifacts") / "research_extension" / "triality_full_eval"
 # Paper-style baselines + static SO8 + learned SO8 + triality proxies + full-KV (plots / mean±SD / multi-group stats).
 PLOT_MODES = ROTATION_COMPARE_MODES
 
@@ -404,10 +407,65 @@ def write_eval_outputs(
     }
 
 
+def maybe_write_best_per_layer_outputs(
+    *,
+    output_dir: Path,
+    trial_frame: pd.DataFrame,
+    summary_frame: pd.DataFrame,
+    rotation_dir: Path,
+) -> dict[str, Path] | None:
+    selector_dir = ensure_dir(output_dir / "best_per_layer")
+    manifest, selected_frame = build_best_per_layer_selector(trial_frame)
+    selector_stats = compute_triality_selector_statistics(selected_frame, trial_frame)
+    selector_stats_path = selector_dir / "triality_best_per_layer_gate.csv"
+    selector_stats.to_csv(selector_stats_path, index=False)
+    (selector_dir / "triality_best_per_layer_gate.md").write_text(markdown_table(selector_stats), encoding="utf-8")
+    promotion_row = selector_stats.loc[selector_stats["metric"] == "promotion_gate"]
+    gate_passed = bool(not promotion_row.empty and bool(promotion_row["significant_0_05"].iloc[0]))
+    if not gate_passed:
+        return {
+            "selector_gate_csv": selector_stats_path,
+        }
+    manifest_path = selector_dir / "triality_best_per_layer_manifest.csv"
+    summary_path = selector_dir / "triality_best_per_layer_summary.csv"
+    config_path = selector_dir / "triality_best_per_layer_config.json"
+    manifest.to_csv(manifest_path, index=False)
+    selected_summary = summary_frame.loc[summary_frame["mode"] == TRIALITY_SELECTOR_MODE].copy()
+    if selected_summary.empty:
+        from turboquant.analysis import summarize_trial_metrics
+
+        selected_summary = summarize_trial_metrics(selected_frame)
+    selected_summary.to_csv(summary_path, index=False)
+    (selector_dir / "triality_best_per_layer_summary.md").write_text(
+        markdown_table(selected_summary), encoding="utf-8"
+    )
+    payload = build_research_turboquant_config(
+        key_config=KeyResearchConfig(
+            head_dim=128,
+            view_selection="best_per_layer",
+            views=TRIALITY_PROXY_VIEWS,
+        ),
+        value_config=ValueResearchConfig(),
+        artifact_refs={
+            "selector_gate_csv": str(selector_stats_path).replace("\\", "/"),
+            "selector_manifest_csv": str(manifest_path).replace("\\", "/"),
+            "selector_summary_csv": str(summary_path).replace("\\", "/"),
+            "rotation_dir": str(rotation_dir).replace("\\", "/"),
+        },
+    )
+    write_turboquant_config(config_path, payload)
+    return {
+        "selector_gate_csv": selector_stats_path,
+        "selector_manifest_csv": manifest_path,
+        "selector_summary_csv": summary_path,
+        "selector_config_json": config_path,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate triality-proxy K-only modes on captured Qwen KV.")
     parser.add_argument("--kv-dir", default="artifacts/kv")
-    parser.add_argument("--rotation-dir", default="artifacts/research_extension/triality_k_only/rotations")
+    parser.add_argument("--rotation-dir", default="artifacts/research_extension/triality_full_train/rotations")
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--max-layers", type=int, default=0)
     parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
@@ -544,6 +602,18 @@ def main() -> int:
         )
         checkpoint.complete("write_csv_md")
 
+        if not args.skip_statistics:
+            checkpoint.start("selector_gate")
+            selector_outputs = maybe_write_best_per_layer_outputs(
+                output_dir=output_dir,
+                trial_frame=trial_frame,
+                summary_frame=summary_frame,
+                rotation_dir=Path(args.rotation_dir),
+            )
+            checkpoint.complete("selector_gate")
+        else:
+            selector_outputs = None
+
         if args.evaluate_only:
             checkpoint.start("finish")
             checkpoint.complete("finish")
@@ -552,6 +622,8 @@ def main() -> int:
                 run_logger.line(str(stats_frame), also_stdout=True)
                 run_logger.line(str(friedman_frame), also_stdout=True)
                 run_logger.line(str(pairwise_frame), also_stdout=True)
+                if selector_outputs is not None:
+                    run_logger.line(str(selector_outputs), also_stdout=True)
             return 0
 
         if not args.skip_plots:

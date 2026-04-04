@@ -64,6 +64,7 @@ ROTATION_COMPARE_MODES: tuple[str, ...] = (
     "key_only_block_so8_triality_minus",
     "full_kv",
 )
+TRIALITY_SELECTOR_MODE = "key_only_block_so8_triality_best_per_layer"
 
 
 def bit_setting_sort_key(label: str) -> tuple[int, float]:
@@ -888,4 +889,167 @@ def compute_triality_statistics(trial_frame: pd.DataFrame) -> pd.DataFrame:
         for row_index, adjusted_p in zip(row_indices, adjusted, strict=True):
             rows[row_index]["p_value_holm"] = adjusted_p
             rows[row_index]["significant_0_05"] = adjusted_p < 0.05
+    return pd.DataFrame(rows)
+
+
+def build_best_per_layer_selector(trial_frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Choose the best Triality view for each layer/bit by mean hidden cosine."""
+    if trial_frame.empty:
+        raise ValueError("build_best_per_layer_selector received an empty trial_frame")
+    required_columns = {
+        "mode",
+        "view",
+        "dataset",
+        "trial",
+        "layer",
+        "bit_setting",
+        "bits",
+        "hidden_cosine_similarity",
+    }
+    missing_columns = sorted(required_columns.difference(trial_frame.columns))
+    if missing_columns:
+        raise ValueError(f"trial_frame is missing required columns for selector build: {missing_columns}")
+    triality_rows = trial_frame.loc[trial_frame["mode"].isin(TRIALITY_MODE_BY_VIEW.values())].copy()
+    if triality_rows.empty:
+        raise ValueError("build_best_per_layer_selector found no triality rows in trial_frame")
+    selection_rows: list[dict[str, float | int | str]] = []
+    selected_groups: list[pd.DataFrame] = []
+    for (layer, bit_setting), group in triality_rows.groupby(["layer", "bit_setting"], dropna=False, sort=True):
+        view_summary = (
+            group.groupby("view", dropna=False)["hidden_cosine_similarity"]
+            .mean()
+            .sort_values(ascending=False, kind="stable")
+        )
+        selected_view = str(view_summary.index[0])
+        selected_mode = triality_mode_name(selected_view)
+        selection_rows.append(
+            {
+                "layer": int(layer),
+                "bit_setting": str(bit_setting),
+                "bits": float(group.loc[group["view"] == selected_view, "bits"].iloc[0]),
+                "selected_view": selected_view,
+                "selected_mode": selected_mode,
+                "selector_policy": "best_per_layer_hidden_cosine",
+                "selected_hidden_cosine_mean": float(view_summary.iloc[0]),
+            }
+        )
+        chosen = group.loc[group["view"] == selected_view].copy()
+        chosen["mode"] = TRIALITY_SELECTOR_MODE
+        chosen["key_mode"] = TRIALITY_SELECTOR_MODE
+        chosen["selector_policy"] = "best_per_layer_hidden_cosine"
+        chosen["selected_view"] = selected_view
+        selected_groups.append(chosen)
+    manifest = pd.DataFrame(selection_rows).sort_values(
+        by=["bits", "layer"],
+        key=lambda series: series.map(bit_setting_sort_key) if series.name == "bit_setting" else series,
+    )
+    selected_frame = pd.concat(selected_groups, ignore_index=True)
+    return manifest, selected_frame
+
+
+def compute_triality_selector_statistics(
+    selected_frame: pd.DataFrame,
+    trial_frame: pd.DataFrame,
+) -> pd.DataFrame:
+    """Paired Wilcoxon gate comparing best-per-layer selector vs learned SO(8)."""
+    if selected_frame.empty:
+        raise ValueError("compute_triality_selector_statistics received an empty selected_frame")
+    pair_columns = triality_pairing_columns(selected_frame)
+    baseline = trial_frame.loc[
+        trial_frame["mode"] == "key_only_block_so8_learned",
+        pair_columns + ["hidden_cosine_similarity", "next_logit_kl", "memory_ratio_vs_exact"],
+    ].rename(
+        columns={
+            "hidden_cosine_similarity": "baseline_hidden_cosine_similarity",
+            "next_logit_kl": "baseline_next_logit_kl",
+            "memory_ratio_vs_exact": "baseline_memory_ratio_vs_exact",
+        }
+    )
+    candidate = selected_frame[pair_columns + ["hidden_cosine_similarity", "next_logit_kl", "memory_ratio_vs_exact"]].rename(
+        columns={
+            "hidden_cosine_similarity": "candidate_hidden_cosine_similarity",
+            "next_logit_kl": "candidate_next_logit_kl",
+            "memory_ratio_vs_exact": "candidate_memory_ratio_vs_exact",
+        }
+    )
+    paired = baseline.merge(candidate, on=pair_columns, how="inner")
+    if paired.empty:
+        raise ValueError("No paired rows available for triality selector statistics")
+    metric_specs = (
+        ("hidden_cosine_similarity", "greater"),
+        ("next_logit_kl", "less"),
+    )
+    rows: list[dict[str, float | int | str | bool]] = []
+    raw_p_values: list[float] = []
+    for metric, alternative in metric_specs:
+        cand_col = f"candidate_{metric}"
+        base_col = f"baseline_{metric}"
+        try:
+            result = stats.wilcoxon(
+                paired[cand_col],
+                paired[base_col],
+                alternative=alternative,
+                zero_method="wilcox",
+                correction=False,
+                method="auto",
+            )
+            statistic = float(result.statistic)
+            p_value = float(result.pvalue)
+        except ValueError:
+            statistic = 0.0
+            p_value = 1.0
+        rows.append(
+            {
+                "selector_policy": "best_per_layer_hidden_cosine",
+                "metric": metric,
+                "alternative": alternative,
+                "n_pairs": int(len(paired)),
+                "statistic": statistic,
+                "p_value": p_value,
+                "candidate_mean": float(paired[cand_col].mean()),
+                "baseline_mean": float(paired[base_col].mean()),
+                "delta_candidate_minus_baseline": float(paired[cand_col].mean() - paired[base_col].mean()),
+            }
+        )
+        raw_p_values.append(p_value)
+    adjusted = holm_bonferroni(raw_p_values)
+    for row, adjusted_p in zip(rows, adjusted, strict=True):
+        row["p_value_holm"] = adjusted_p
+        row["significant_0_05"] = adjusted_p < 0.05
+    memory_delta = float(
+        paired["candidate_memory_ratio_vs_exact"].mean() - paired["baseline_memory_ratio_vs_exact"].mean()
+    )
+    hidden_gate = next(
+        (
+            bool(row["significant_0_05"]) and float(row["delta_candidate_minus_baseline"]) > 0
+            for row in rows
+            if row["metric"] == "hidden_cosine_similarity"
+        ),
+        False,
+    )
+    kl_gate = next(
+        (
+            float(row["delta_candidate_minus_baseline"]) <= 1e-9
+            for row in rows
+            if row["metric"] == "next_logit_kl"
+        ),
+        False,
+    )
+    promotion_row = {
+        "selector_policy": "best_per_layer_hidden_cosine",
+        "metric": "promotion_gate",
+        "alternative": "compound",
+        "n_pairs": int(len(paired)),
+        "statistic": float("nan"),
+        "p_value": float("nan"),
+        "candidate_mean": float("nan"),
+        "baseline_mean": float("nan"),
+        "delta_candidate_minus_baseline": memory_delta,
+        "p_value_holm": float("nan"),
+        "significant_0_05": bool(hidden_gate and kl_gate and abs(memory_delta) <= 1e-9),
+        "hidden_gate_pass": hidden_gate,
+        "next_logit_kl_gate_pass": kl_gate,
+        "memory_ratio_delta": memory_delta,
+    }
+    rows.append(promotion_row)
     return pd.DataFrame(rows)

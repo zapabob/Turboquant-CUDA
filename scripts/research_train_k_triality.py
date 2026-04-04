@@ -20,7 +20,7 @@ from turboquant.research_extension import (
 from turboquant.schema import build_research_turboquant_config, write_turboquant_config
 
 
-ARTIFACT_ROOT = Path("artifacts") / "research_extension" / "triality_k_only"
+ARTIFACT_ROOT = Path("artifacts") / "research_extension" / "triality_full_train"
 
 
 def parse_args() -> argparse.Namespace:
