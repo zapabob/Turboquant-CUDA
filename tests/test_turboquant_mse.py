@@ -56,3 +56,49 @@ def test_fit_rotation_step_metrics_callback_once_per_step() -> None:
     x = torch.randn((8, 8), generator=generator, dtype=torch.float32)
     quantizer.fit_rotation(x, steps=steps, lr=0.05, step_metrics_callback=callback)
     assert seen == list(range(steps))
+
+
+# ---------------------------------------------------------------------------
+# norm_correction tests
+# ---------------------------------------------------------------------------
+
+
+def test_norm_correction_false_is_default() -> None:
+    """TurboQuantMSEConfig default norm_correction is False."""
+    cfg = TurboQuantMSEConfig(dim=16, bits=4)
+    assert cfg.norm_correction is False
+
+
+def test_norm_correction_changes_reconstruction_at_low_bits() -> None:
+    """norm_correction=True and False produce different outputs at 2-bit."""
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(0)
+    x = torch.randn((32, 32), generator=generator, dtype=torch.float32)
+    x = x / torch.linalg.vector_norm(x, dim=-1, keepdim=True)
+
+    cfg_off = TurboQuantMSEConfig(dim=32, bits=2, rotation_seed=0, norm_correction=False)
+    cfg_on = TurboQuantMSEConfig(dim=32, bits=2, rotation_seed=0, norm_correction=True)
+    q_off = TurboQuantMSE(cfg_off)
+    q_on = TurboQuantMSE(cfg_on)
+    # Share the same rotation so the only difference is norm_correction
+    q_on.set_rotation(q_off.rotation)
+
+    recon_off = q_off.dequantize(q_off.quantize(x))
+    recon_on = q_on.dequantize(q_on.quantize(x))
+
+    assert recon_off.shape == x.shape
+    assert recon_on.shape == x.shape
+    assert torch.isfinite(recon_on).all()
+    assert not torch.allclose(recon_off, recon_on), (
+        "Expected norm_correction to change reconstruction at 2 bits"
+    )
+
+
+def test_norm_correction_no_nan_on_zero_input() -> None:
+    """norm_correction=True must not produce NaN on zero input."""
+    cfg = TurboQuantMSEConfig(dim=16, bits=2, norm_correction=True)
+    q = TurboQuantMSE(cfg)
+    x = torch.zeros((4, 16), dtype=torch.float32)
+    encoded = q.quantize(x)
+    recon = q.dequantize(encoded)
+    assert torch.isfinite(recon).all()

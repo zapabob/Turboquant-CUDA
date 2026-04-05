@@ -7,7 +7,7 @@ from typing import Literal
 
 import torch
 
-RotationPolicy = Literal["random_haar", "block_so8_static", "block_so8_learned"]
+RotationPolicy = Literal["random_haar", "block_so8_static", "block_so8_learned", "fast_hadamard"]
 ProtectionPolicy = Literal["none", "sensitivity_mixed", "sensitive_layer_exact", "protected_low_rank"]
 Granularity = Literal["per-layer", "per-head", "per-channel"]
 ScoreSource = Literal["attention-output-sensitivity", "teacher-gradient-proxy"]
@@ -56,6 +56,7 @@ class TurboQuantMSEConfig:
     codebook_kind: str = "sphere-lloyd-max"
     device: str = "cpu"
     dtype: str = "float32"
+    norm_correction: bool = False  # renormalize y_hat in rotated space before inv-rotation
 
 
 @dataclass(slots=True)

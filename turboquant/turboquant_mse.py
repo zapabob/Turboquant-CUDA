@@ -119,11 +119,23 @@ class TurboQuantMSE:
         )
 
     def dequantize(self, encoded: QuantizedMSEBatch) -> torch.Tensor:
+        """Decode a QuantizedMSEBatch back to the original vector space.
+
+        When ``self.config.norm_correction`` is True, reconstructed codebook
+        vectors are renormalised to unit length in the rotated space before the
+        inverse rotation is applied.  This matches the polar-quant correction
+        from TheTom/turboquant_plus and improves Stage-1 fidelity at low
+        bit widths.
+        """
         values = torch.zeros(encoded.shape, device=self.device, dtype=self.dtype)
         for bits in sorted({int(v) for v in encoded.bitwidths.unique().tolist()}):
             mask = encoded.bitwidths == bits
             if mask.any():
                 values[mask] = self._decode_with_bits(encoded.indices[mask], bits=bits)
+        if self.config.norm_correction:
+            y_hat_norms = torch.linalg.vector_norm(values, dim=-1, keepdim=True)
+            safe_norms = torch.clamp(y_hat_norms, min=torch.finfo(self.dtype).eps)
+            values = values / safe_norms
         reconstructed = torch.matmul(values, self.rotation)
         return reconstructed * encoded.norms
 

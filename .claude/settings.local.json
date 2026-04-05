@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Read(//c/Users/downl/Desktop/hypura-main/hypura-main/src/**)",
-      "Read(//c/Users/downl/Desktop/hypura-main/hypura-main/scripts/**)"
+      "Read(//c/Users/downl/Desktop/hypura-main/hypura-main/scripts/**)",
+      "Bash(gh repo:*)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(uv run python -c ':*)",
+      "Bash(uv run:*)"
     ]
   }
 }

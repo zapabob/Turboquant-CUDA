@@ -79,3 +79,19 @@ def decision_boundaries_tensor(
     boundaries[-1] = 1.0
     boundaries[1:-1] = (codebook[:-1] + codebook[1:]) * 0.5
     return boundaries
+
+
+def prewarm_standard_codebooks(dim: int) -> None:
+    """Warm the :func:`fit_lloyd_max_codebook` LRU cache for bits 1 through 4.
+
+    Call once at startup to avoid on-demand derivation latency on the first
+    quantize call.  Subsequent calls are effectively free (cache hits).
+
+    Args:
+        dim: Codebook dimension to pre-compute (must match the quantizer dim).
+
+    Raises:
+        ValueError: Propagated from :func:`fit_lloyd_max_codebook` if dim < 2.
+    """
+    for bits in (1, 2, 3, 4):
+        fit_lloyd_max_codebook(dim=dim, bits=bits)
