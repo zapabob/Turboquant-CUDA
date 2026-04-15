@@ -49,9 +49,9 @@ enum Commands {
         /// Optional TurboQuant sidecar config path
         #[arg(long)]
         turboquant_config: Option<String>,
-        /// Rotation policy for TurboQuant
-        #[arg(long, value_enum)]
-        rotation_policy: Option<RotationPolicy>,
+        /// Rotation policy for TurboQuant (default: Triality + SO(8) vector view)
+        #[arg(long, value_enum, default_value_t = RotationPolicy::TrialityVector)]
+        rotation_policy: RotationPolicy,
         /// Rotation seed for deterministic rotation
         #[arg(long, default_value = "0")]
         rotation_seed: u32,
@@ -75,9 +75,9 @@ enum Commands {
         /// Optional TurboQuant sidecar config path
         #[arg(long)]
         turboquant_config: Option<String>,
-        /// Rotation policy for TurboQuant
-        #[arg(long, value_enum)]
-        rotation_policy: Option<RotationPolicy>,
+        /// Rotation policy for TurboQuant (default: Triality + SO(8) vector view)
+        #[arg(long, value_enum, default_value_t = RotationPolicy::TrialityVector)]
+        rotation_policy: RotationPolicy,
         /// Rotation seed for deterministic rotation
         #[arg(long, default_value = "0")]
         rotation_seed: u32,
@@ -131,9 +131,9 @@ enum Commands {
         /// Optional TurboQuant sidecar config path
         #[arg(long)]
         turboquant_config: Option<String>,
-        /// Rotation policy for TurboQuant
-        #[arg(long, value_enum)]
-        rotation_policy: Option<RotationPolicy>,
+        /// Rotation policy for TurboQuant (default: Triality + SO(8) vector view)
+        #[arg(long, value_enum, default_value_t = RotationPolicy::TrialityVector)]
+        rotation_policy: RotationPolicy,
         /// Rotation seed for deterministic rotation
         #[arg(long, default_value = "0")]
         rotation_seed: u32,
@@ -192,7 +192,7 @@ fn main() -> anyhow::Result<()> {
             max_tokens,
             turboquant_mode,
             turboquant_config.as_deref(),
-            rotation_policy.map(|p| p.as_str().to_string()).as_deref(),
+            rotation_policy,
             rotation_seed,
         ),
         Commands::Serve {
@@ -219,7 +219,7 @@ fn main() -> anyhow::Result<()> {
             context,
             turboquant_mode,
             turboquant_config.as_deref(),
-            rotation_policy.map(|p| p.as_str().to_string()).as_deref(),
+            rotation_policy,
             rotation_seed,
             tq_so8_off,
             tq_so8_learned,
@@ -250,7 +250,7 @@ fn main() -> anyhow::Result<()> {
             force,
             turboquant_mode,
             turboquant_config.as_deref(),
-            rotation_policy.map(|p| p.as_str().to_string()).as_deref(),
+            rotation_policy,
             rotation_seed,
         ),
         Commands::Inspect { model, tensors } => cli::inspect::run(&model, tensors),

@@ -3,11 +3,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use hypura::compute::inference::*;
-use hypura::model::turboquant_sidecar::TurboQuantMode;
+use hypura::model::turboquant_sidecar::{RotationPolicy, TurboQuantMode};
 use hypura::scheduler::types::{PlacementSummary, StorageTier};
 use hypura::telemetry::metrics::TelemetryEmitter;
+use indicatif::{ProgressBar, ProgressStyle};
 
-use super::fmt_util::format_bytes;
+use super::fmt_util::{cli_progress_enabled, format_bytes};
 
 pub fn run(
     model_path: &str,
@@ -17,7 +18,7 @@ pub fn run(
     max_tokens: u32,
     turboquant_mode: TurboQuantMode,
     turboquant_config: Option<&str>,
-    rotation_policy: Option<&str>,
+    rotation_policy: RotationPolicy,
     rotation_seed: u32,
 ) -> anyhow::Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
@@ -42,15 +43,21 @@ async fn run_async(
     max_tokens: u32,
     turboquant_mode: TurboQuantMode,
     turboquant_config: Option<&str>,
-    _rotation_policy: Option<&str>,
-    _rotation_seed: u32,
+    rotation_policy: RotationPolicy,
+    rotation_seed: u32,
 ) -> anyhow::Result<()> {
     let path = Path::new(model_path);
+    let llama_bridge = LlamaTurboquantCliBridge {
+        rotation_policy,
+        llama_rotation_seed: rotation_seed,
+        ..Default::default()
+    };
     let runtime = resolve_runtime_setup(
         path,
         context,
         turboquant_mode,
         turboquant_config.map(Path::new),
+        llama_bridge,
     )?;
 
     let has_nvme = runtime
@@ -77,7 +84,9 @@ async fn run_async(
         runtime.turboquant.source_label(),
         if runtime.turboquant.gguf_metadata.is_some() {
             "gguf-metadata-bridge"
-        } else if runtime.turboquant.mode == hypura::model::turboquant_sidecar::TurboQuantMode::Exact {
+        } else if runtime.turboquant.mode
+            == hypura::model::turboquant_sidecar::TurboQuantMode::Exact
+        {
             "inactive"
         } else if runtime.turboquant.mode
             == hypura::model::turboquant_sidecar::TurboQuantMode::PaperFullKv
@@ -162,7 +171,19 @@ async fn run_single_prompt(
     let gguf_clone = gguf.clone();
     let turboquant_clone = turboquant.clone();
 
-    println!("Loading model...");
+    let pb = if cli_progress_enabled() {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
+                .unwrap()
+                .tick_chars("|/-\\ "),
+        );
+        pb.set_message("Loading / generating...");
+        pb.enable_steady_tick(std::time::Duration::from_millis(80));
+        pb
+    } else {
+        ProgressBar::hidden()
+    };
     let handle = tokio::task::spawn_blocking(move || {
         generate_with_nvme_scheduling(
             &path,
@@ -185,6 +206,9 @@ async fn run_single_prompt(
     }
 
     let result = handle.await??;
+    if cli_progress_enabled() {
+        pb.finish_and_clear();
+    }
 
     println!();
     println!();
@@ -237,6 +261,20 @@ async fn run_interactive(
         let gguf_c = gguf.clone();
         let turboquant_c = turboquant.clone();
 
+        let pb = if cli_progress_enabled() {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] {msg}")
+                    .unwrap()
+                    .tick_chars("|/-\\ "),
+            );
+            pb.set_message("Generating...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(80));
+            pb
+        } else {
+            ProgressBar::hidden()
+        };
+
         let handle = tokio::task::spawn_blocking(move || {
             generate_with_nvme_scheduling(
                 &path,
@@ -260,6 +298,9 @@ async fn run_interactive(
         println!();
 
         let result = handle.await??;
+        if cli_progress_enabled() {
+            pb.finish_and_clear();
+        }
         history.push(("assistant".into(), response));
 
         println!(

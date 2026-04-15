@@ -1,3 +1,12 @@
+use std::io::{stderr, IsTerminal};
+
+/// Whether to show indicatif spinners/bars (stderr TTY, not CI, NO_COLOR unset).
+pub fn cli_progress_enabled() -> bool {
+    stderr().is_terminal()
+        && std::env::var("CI").map_or(true, |v| v.trim().is_empty())
+        && std::env::var("NO_COLOR").map_or(true, |v| v.trim().is_empty())
+}
+
 pub fn format_bytes(bytes: u64) -> String {
     if bytes >= 1 << 30 {
         format!("{:.1} GB", bytes as f64 / (1u64 << 30) as f64)

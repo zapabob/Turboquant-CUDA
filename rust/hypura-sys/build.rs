@@ -41,6 +41,11 @@ fn main() {
 
     // ── Build llama.cpp via cmake ────────────────────────────────────────────
     let mut cmake_config = cmake::Config::new(&llama_dir);
+    // cmake-rs may default to a preview VS generator (e.g. VS 18 2026) that is not
+    // installed. Prefer VS 2022 when the user has not set CMAKE_GENERATOR.
+    if target_os == "windows" && env::var("CMAKE_GENERATOR").is_err() {
+        cmake_config.generator("Visual Studio 17 2022");
+    }
     cmake_config
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("CMAKE_BUILD_TYPE", "Release")
@@ -215,7 +220,9 @@ fn configure_cmake_num_jobs(target_os: &str) {
         let trimmed = value.trim();
         if !trimmed.is_empty() {
             env::set_var("NUM_JOBS", trimmed);
-            println!("cargo:warning=Using HYPURA_CMAKE_NUM_JOBS={trimmed} for llama.cpp CMake builds.");
+            println!(
+                "cargo:warning=Using HYPURA_CMAKE_NUM_JOBS={trimmed} for llama.cpp CMake builds."
+            );
             return;
         }
     }

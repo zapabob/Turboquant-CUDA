@@ -1,6 +1,6 @@
 [package]
 name = "hypura"
-version = "0.4.0"
+version = "0.7.0"
 edition = "2021"
 description = "Storage-tier-aware LLM inference scheduler (vendored workspace copy)"
 license = "MIT"
@@ -11,7 +11,7 @@ name = "hypura"
 path = "src/main.rs"
 
 [dependencies]
-hypura-sys = { path = "../hypura-sys", version = "0.3.0" }
+hypura-sys = { path = "../hypura-sys", version = "0.7.0" }
 
 # CLI and config
 clap = { version = "4", features = ["derive"] }
@@ -47,6 +47,7 @@ byteorder = "1"
 memmap2 = "0.9"
 linked-hash-map = "0.5"
 uuid = { version = "1", features = ["v4"] }
+indicatif = "0.17"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
