@@ -16,15 +16,17 @@ ResearchViewSelection = Literal["report_all", "best_per_layer"]
 class KeyResearchConfig:
     """Research configuration for key-side score-preserving experiments.
 
-    For the **production canonical** K path (Triality SO(8) + TurboQuant), use
-    ``view_mode="triality_proxy"`` and prioritize the ``"vector"`` view; see
-    ``PRODUCTION_K_TURBOQUANT_MODE`` in ``turboquant.research_extension.k_triality``.
+    For the **production canonical** K path (triality-proxy + TurboQuant), use
+    ``view_mode="triality_proxy"`` and prioritize the ``"vector"`` proxy view;
+    see ``PRODUCTION_K_TURBOQUANT_MODE`` in
+    ``turboquant.research_extension.k_triality``.
     """
 
     head_dim: int
     bits_total: int = 3
     mse_bits: int | None = None
     qjl_bits: int = 1
+    qjl_dim: int | None = None
     rotation_policy: str = "block_so8_learned"
     rotation_seed: int = 0
     qjl_seed: int = 1
@@ -41,6 +43,7 @@ class KeyResearchConfig:
             value_bits=self.bits_total,
             rotation_seed=self.rotation_seed,
             qjl_seed=self.qjl_seed,
+            qjl_dim=self.qjl_dim,
             device=self.device,
             dtype=self.dtype,
             rotation_policy=self.rotation_policy,

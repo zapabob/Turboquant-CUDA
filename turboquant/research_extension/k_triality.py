@@ -34,6 +34,12 @@ from turboquant.attention_metrics import summarize_attention_scores
 from turboquant.rotation import so8_block_diagonal_rotation_metrics
 from turboquant.research_extension.multiscreen_kv import compute_k_relevance, expand_relevance_bitwidths_to_key_shape
 from turboquant.research_extension.triality_proxy import TRIALITY_PROXY_VIEWS, TrialityProxyProd
+from turboquant.schema import (
+    DEFAULT_BITWIDTH_PAYLOAD_DTYPE,
+    DEFAULT_SIGN_PACK_FORMAT,
+    build_turboquant_artifact_metadata,
+    validate_turboquant_artifact_metadata,
+)
 from turboquant.turboquant_prod import TurboQuantProd
 from turboquant.types import TurboQuantProdConfig
 
@@ -43,6 +49,8 @@ TRIALITY_MODE_BY_VIEW = {
     "spinor_plus_proxy": "key_only_block_so8_triality_plus",
     "spinor_minus_proxy": "key_only_block_so8_triality_minus",
 }
+# These runtime mode strings are legacy identifiers. The explicit ABI / manifest
+# label for the current implementation is `tq_triality_mode="triality_proxy"`.
 
 # Subset of evaluate_layer_grid modes replayed alongside triality-proxy rows (paper baselines + static SO8).
 TRIALITY_BASELINE_GRID_MODES: frozenset[str] = frozenset(
@@ -102,6 +110,7 @@ class TrialityRotationArtifact:
     rotation: torch.Tensor
     rotation_seed: int
     qjl_seed: int
+    metadata: dict[str, object]
 
 
 def triality_mode_name(view: str) -> str:
@@ -198,6 +207,21 @@ def fit_triality_proxy_rotations(
             for view_index, view in enumerate(TRIALITY_PROXY_VIEWS):
                 rotation_seed = _seed_value(layer_idx, bit_value, view_index, 17)
                 qjl_seed = _seed_value(layer_idx, bit_value, view_index, 71)
+                metadata = build_turboquant_artifact_metadata(
+                    total_bits=float(bit_value),
+                    qjl_bits=1,
+                    qjl_dim=keys.shape[-1],
+                    rotation_policy="block_so8_learned",
+                    rotation_seed=rotation_seed,
+                    qjl_seed=qjl_seed,
+                    triality_mode="triality_proxy",
+                    triality_view=view,
+                    width=keys.shape[-1],
+                    allocation=allocation,
+                    bitwidth_payload_dtype=DEFAULT_BITWIDTH_PAYLOAD_DTYPE,
+                    norm_dtype=str(keys.dtype).split(".")[-1],
+                    sign_pack_format=DEFAULT_SIGN_PACK_FORMAT,
+                )
                 quantizer = TurboQuantProd(
                     TurboQuantProdConfig(
                         dim=keys.shape[-1],
@@ -234,26 +258,27 @@ def fit_triality_proxy_rotations(
                         rotation=rotation,
                         rotation_seed=rotation_seed,
                         qjl_seed=qjl_seed,
+                        metadata=metadata,
                     )
                 )
                 ortho_err, det_err_max = so8_block_diagonal_rotation_metrics(rotation)
-                rows.append(
-                    {
-                        "layer": layer_idx,
-                        "bits": float(bit_value),
-                        "bit_setting": f"{bit_value:g}",
-                        "view": view,
-                        "mode": triality_mode_name(view),
-                        "rotation_seed": rotation_seed,
-                        "qjl_seed": qjl_seed,
-                        "prompt_count": len(bundles),
-                        "token_count": int(keys.shape[-2]),
-                        "orthogonality_error": ortho_err,
-                        "rotation_determinant_error_max": det_err_max,
-                        "train_logit_cosine_similarity": metrics["cosine_similarity"],
-                        "train_logit_mse": metrics["mse"],
-                    }
-                )
+                row = {
+                    "layer": layer_idx,
+                    "bits": float(bit_value),
+                    "bit_setting": f"{bit_value:g}",
+                    "view": view,
+                    "mode": triality_mode_name(view),
+                    "rotation_seed": rotation_seed,
+                    "qjl_seed": qjl_seed,
+                    "prompt_count": len(bundles),
+                    "token_count": int(keys.shape[-2]),
+                    "orthogonality_error": ortho_err,
+                    "rotation_determinant_error_max": det_err_max,
+                    "train_logit_cosine_similarity": metrics["cosine_similarity"],
+                    "train_logit_mse": metrics["mse"],
+                }
+                row.update(metadata)
+                rows.append(row)
     return artifacts, pd.DataFrame(rows)
 
 
@@ -271,21 +296,22 @@ def save_triality_proxy_rotations(artifacts: list[TrialityRotationArtifact], out
                 "rotation": artifact.rotation,
                 "rotation_seed": artifact.rotation_seed,
                 "qjl_seed": artifact.qjl_seed,
+                "metadata": artifact.metadata,
             },
             path,
         )
-        rows.append(
-            {
-                "layer": artifact.layer_idx,
-                "bits": artifact.bits,
-                "bit_setting": f"{artifact.bits:g}",
-                "view": artifact.view,
-                "mode": triality_mode_name(artifact.view),
-                "rotation_path": str(path).replace("\\", "/"),
-                "rotation_seed": artifact.rotation_seed,
-                "qjl_seed": artifact.qjl_seed,
-            }
-        )
+        row = {
+            "layer": artifact.layer_idx,
+            "bits": artifact.bits,
+            "bit_setting": f"{artifact.bits:g}",
+            "view": artifact.view,
+            "mode": triality_mode_name(artifact.view),
+            "rotation_path": str(path).replace("\\", "/"),
+            "rotation_seed": artifact.rotation_seed,
+            "qjl_seed": artifact.qjl_seed,
+        }
+        row.update(artifact.metadata)
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -293,6 +319,26 @@ def load_triality_proxy_rotations(rotation_dir: Path) -> dict[tuple[int, float, 
     artifacts: dict[tuple[int, float, str], TrialityRotationArtifact] = {}
     for path in sorted(rotation_dir.glob("*.pt")):
         payload = torch.load(path, map_location="cpu")
+        metadata = payload.get("metadata")
+        if metadata is None:
+            rotation = payload["rotation"]
+            metadata = build_turboquant_artifact_metadata(
+                total_bits=float(payload["bits"]),
+                qjl_bits=1,
+                qjl_dim=int(rotation.shape[-1]),
+                rotation_policy="block_so8_learned",
+                rotation_seed=int(payload["rotation_seed"]),
+                qjl_seed=int(payload["qjl_seed"]),
+                triality_mode="triality_proxy",
+                triality_view=str(payload["view"]),
+                width=int(rotation.shape[-1]),
+                allocation=_stage1_allocation(float(payload["bits"]), width=int(rotation.shape[-1])),
+                bitwidth_payload_dtype=DEFAULT_BITWIDTH_PAYLOAD_DTYPE,
+                norm_dtype=str(rotation.dtype).split(".")[-1],
+                sign_pack_format=DEFAULT_SIGN_PACK_FORMAT,
+            )
+            metadata["tq_metadata_inferred_from_legacy_payload"] = True
+        validate_turboquant_artifact_metadata(metadata)
         artifact = TrialityRotationArtifact(
             layer_idx=int(payload["layer"]),
             bits=float(payload["bits"]),
@@ -300,6 +346,7 @@ def load_triality_proxy_rotations(rotation_dir: Path) -> dict[tuple[int, float, 
             rotation=payload["rotation"].to(dtype=torch.float32),
             rotation_seed=int(payload["rotation_seed"]),
             qjl_seed=int(payload["qjl_seed"]),
+            metadata=metadata,
         )
         artifacts[(artifact.layer_idx, artifact.bits, artifact.view)] = artifact
     if not artifacts:

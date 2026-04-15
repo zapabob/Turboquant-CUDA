@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import math
 from pathlib import Path
 from typing import Any
 import json
 
+from turboquant.allocation import ChannelBitAllocation
 from turboquant.io_utils import write_json
 from turboquant.paper_baseline.types import PaperMixedBitPolicy
 from turboquant.research_extension.types import KeyResearchConfig, ValueResearchConfig
@@ -14,8 +16,12 @@ from turboquant.research_extension.types import KeyResearchConfig, ValueResearch
 
 PAPER_SCHEMA_KIND = "paper_baseline"
 RESEARCH_SCHEMA_KIND = "research_extension"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+ARTIFACT_METADATA_SCHEMA_VERSION = 1
 PAPER_MODE_NAMES = ("exact", "key_only_random", "full_kv")
+DEFAULT_SIGN_PACK_FORMAT = "int8_unpacked_binary"
+DEFAULT_BITWIDTH_PAYLOAD_DTYPE = "uint8"
+TURBOQUANT_REFERENCE_PAPER_URL = "https://arxiv.org/abs/2504.19874"
 
 
 def _require(mapping: dict[str, Any], keys: tuple[str, ...], *, context: str) -> None:
@@ -111,20 +117,32 @@ def build_research_turboquant_config(
     value_config: ValueResearchConfig,
     artifact_refs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    qjl_dim = key_config.qjl_dim if key_config.qjl_dim is not None else key_config.head_dim
+    stage1_effective_bits = float(key_config.bits_total - key_config.qjl_bits)
+    if stage1_effective_bits < 0:
+        raise ValueError("bits_total must be >= qjl_bits")
     payload = {
         "schema_kind": RESEARCH_SCHEMA_KIND,
         "version": SCHEMA_VERSION,
         "k_codec": {
-            "bits_total": key_config.bits_total,
+            "bits_total": float(key_config.bits_total),
             "mse_bits": key_config.mse_bits,
             "qjl_bits": key_config.qjl_bits,
+            "qjl_dim": qjl_dim,
+            "stage1_effective_bits": stage1_effective_bits,
             "rotation_policy": key_config.rotation_policy,
             "rotation_seed": key_config.rotation_seed,
             "qjl_seed": key_config.qjl_seed,
             "head_dim": key_config.head_dim,
             "view_mode": key_config.view_mode,
             "view_selection": key_config.view_selection,
+            "triality_mode": "triality_proxy" if key_config.view_mode == "triality_proxy" else "single_view",
+            "triality_view": key_config.views[0] if key_config.views else "",
             "views": list(key_config.views),
+            "stage1_allocation_scheme": "uniform",
+            "stage1_bitwidth_payload_dtype": DEFAULT_BITWIDTH_PAYLOAD_DTYPE,
+            "norm_dtype": key_config.dtype,
+            "sign_pack_format": DEFAULT_SIGN_PACK_FORMAT,
         },
         "v_codec": {
             "base_bits": value_config.base_bits,
@@ -191,16 +209,154 @@ def validate_research_turboquant_config(payload: dict[str, Any]) -> None:
             "bits_total",
             "mse_bits",
             "qjl_bits",
+            "qjl_dim",
+            "stage1_effective_bits",
             "rotation_policy",
             "rotation_seed",
             "qjl_seed",
             "head_dim",
             "view_mode",
             "view_selection",
+            "triality_mode",
+            "triality_view",
             "views",
+            "stage1_allocation_scheme",
+            "stage1_bitwidth_payload_dtype",
+            "norm_dtype",
+            "sign_pack_format",
         ),
         context="research k_codec",
     )
+    if float(k_codec["bits_total"]) < float(k_codec["qjl_bits"]):
+        raise ValueError("research k_codec bits_total must be >= qjl_bits")
+
+
+def build_turboquant_artifact_metadata(
+    *,
+    total_bits: float,
+    qjl_bits: int,
+    qjl_dim: int,
+    rotation_policy: str,
+    rotation_seed: int,
+    qjl_seed: int,
+    triality_mode: str,
+    triality_view: str,
+    width: int,
+    allocation: ChannelBitAllocation | None,
+    bitwidth_payload_dtype: str = DEFAULT_BITWIDTH_PAYLOAD_DTYPE,
+    norm_dtype: str = "float32",
+    sign_pack_format: str = DEFAULT_SIGN_PACK_FORMAT,
+) -> dict[str, Any]:
+    """Build an explicit metadata contract for stored TurboQuant artifacts.
+
+    The metadata separates the user-facing total bits/channel label from the
+    Stage 1 allocation details and the Stage 2 QJL contribution so downstream
+    loaders do not have to infer mixed-bit behavior from implicit floor rules.
+    ``tq_runtime_bits_per_channel`` records the actual average bits implied by
+    the stored allocation plus QJL.
+    """
+
+    if width <= 0:
+        raise ValueError(f"width must be positive, got {width}")
+    if qjl_bits < 0:
+        raise ValueError(f"qjl_bits must be non-negative, got {qjl_bits}")
+    if qjl_dim <= 0:
+        raise ValueError(f"qjl_dim must be positive, got {qjl_dim}")
+
+    if allocation is None:
+        stage1_effective_bits = float(total_bits - qjl_bits)
+        if not float(stage1_effective_bits).is_integer():
+            raise ValueError(
+                "Non-integer stage1_effective_bits require an explicit ChannelBitAllocation; "
+                f"got total_bits={total_bits}, qjl_bits={qjl_bits}"
+            )
+        stage1_allocation_scheme = "uniform"
+        stage1_regular_bits = int(round(stage1_effective_bits))
+        stage1_outlier_bits = stage1_regular_bits
+        stage1_outlier_count = 0
+        stage1_outlier_ratio = 0.0
+    else:
+        stage1_effective_bits = float(allocation.effective_bits(width))
+        stage1_allocation_scheme = allocation.selection_policy
+        stage1_regular_bits = allocation.regular_bits
+        stage1_outlier_bits = allocation.outlier_bits
+        stage1_outlier_count = allocation.outlier_count
+        stage1_outlier_ratio = allocation.outlier_ratio(width)
+
+    if stage1_effective_bits < 0:
+        raise ValueError("Stage 1 effective bits must be non-negative")
+
+    payload = {
+        "tq_schema_version": ARTIFACT_METADATA_SCHEMA_VERSION,
+        "tq_total_bits": float(total_bits),
+        "tq_runtime_bits_per_channel": float(stage1_effective_bits + qjl_bits),
+        "tq_stage1_effective_bits": stage1_effective_bits,
+        "tq_qjl_bits": int(qjl_bits),
+        "tq_qjl_dim": int(qjl_dim),
+        "tq_rotation_policy": rotation_policy,
+        "tq_rotation_seed": int(rotation_seed),
+        "tq_qjl_seed": int(qjl_seed),
+        "tq_triality_mode": triality_mode,
+        "tq_triality_view": triality_view,
+        "tq_stage1_allocation_scheme": stage1_allocation_scheme,
+        "tq_stage1_regular_bits": int(stage1_regular_bits),
+        "tq_stage1_outlier_bits": int(stage1_outlier_bits),
+        "tq_stage1_outlier_count": int(stage1_outlier_count),
+        "tq_stage1_outlier_ratio": float(stage1_outlier_ratio),
+        "tq_stage1_width": int(width),
+        "tq_stage1_bitwidth_payload_dtype": bitwidth_payload_dtype,
+        "tq_norm_dtype": norm_dtype,
+        "tq_sign_pack_format": sign_pack_format,
+    }
+    validate_turboquant_artifact_metadata(payload)
+    return payload
+
+
+def validate_turboquant_artifact_metadata(payload: dict[str, Any]) -> None:
+    """Validate the explicit ABI metadata stored alongside TurboQuant artifacts."""
+
+    _require(
+        payload,
+        (
+            "tq_schema_version",
+            "tq_total_bits",
+            "tq_runtime_bits_per_channel",
+            "tq_stage1_effective_bits",
+            "tq_qjl_bits",
+            "tq_qjl_dim",
+            "tq_rotation_policy",
+            "tq_rotation_seed",
+            "tq_qjl_seed",
+            "tq_triality_mode",
+            "tq_triality_view",
+            "tq_stage1_allocation_scheme",
+            "tq_stage1_bitwidth_payload_dtype",
+            "tq_norm_dtype",
+            "tq_sign_pack_format",
+        ),
+        context="turboquant artifact metadata",
+    )
+    total_bits = float(payload["tq_total_bits"])
+    runtime_bits_per_channel = float(payload["tq_runtime_bits_per_channel"])
+    stage1_effective_bits = float(payload["tq_stage1_effective_bits"])
+    qjl_bits = int(payload["tq_qjl_bits"])
+    qjl_dim = int(payload["tq_qjl_dim"])
+    if total_bits < 0:
+        raise ValueError(f"tq_total_bits must be non-negative, got {total_bits}")
+    if runtime_bits_per_channel < 0:
+        raise ValueError(f"tq_runtime_bits_per_channel must be non-negative, got {runtime_bits_per_channel}")
+    if stage1_effective_bits < 0:
+        raise ValueError(f"tq_stage1_effective_bits must be non-negative, got {stage1_effective_bits}")
+    if qjl_bits < 0:
+        raise ValueError(f"tq_qjl_bits must be non-negative, got {qjl_bits}")
+    if qjl_dim <= 0:
+        raise ValueError(f"tq_qjl_dim must be positive, got {qjl_dim}")
+    if not math.isclose(stage1_effective_bits + qjl_bits, runtime_bits_per_channel, rel_tol=1e-6, abs_tol=1e-6):
+        raise ValueError(
+            "Artifact metadata is inconsistent: "
+            f"tq_stage1_effective_bits + tq_qjl_bits != tq_runtime_bits_per_channel "
+            f"({stage1_effective_bits} + {qjl_bits} != {runtime_bits_per_channel})"
+        )
 
 
 def read_turboquant_config(path: Path, *, expected_kind: str | None = None) -> dict[str, Any]:
@@ -229,12 +385,18 @@ def write_turboquant_config(path: Path, payload: dict[str, Any]) -> None:
 
 
 __all__ = [
+    "ARTIFACT_METADATA_SCHEMA_VERSION",
+    "DEFAULT_BITWIDTH_PAYLOAD_DTYPE",
+    "DEFAULT_SIGN_PACK_FORMAT",
     "PAPER_SCHEMA_KIND",
     "RESEARCH_SCHEMA_KIND",
     "SCHEMA_VERSION",
+    "TURBOQUANT_REFERENCE_PAPER_URL",
+    "build_turboquant_artifact_metadata",
     "build_paper_turboquant_config",
     "build_research_turboquant_config",
     "read_turboquant_config",
+    "validate_turboquant_artifact_metadata",
     "validate_paper_turboquant_config",
     "validate_research_turboquant_config",
     "write_turboquant_config",

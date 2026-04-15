@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -47,3 +48,6 @@ def test_multiscreen_script_exact_and_multiscreen_modes(tmp_path: Path) -> None:
         frame = pd.read_csv(csv_path)
         assert not frame.empty
         assert (frame["mode"] == mode).all()
+        run_meta = json.loads((out / mode / "metrics" / "multiscreen_kv_run_meta.json").read_text(encoding="utf-8"))
+        assert run_meta["tq_schema_version"] == 1
+        assert run_meta["reference_paper"] == "https://arxiv.org/abs/2504.19874"

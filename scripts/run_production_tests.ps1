@@ -39,6 +39,10 @@ Write-Host "Running scripts\env_check.py ..."
 & uv run python scripts\env_check.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+Write-Host "Running scripts\validate_repo_contract.py ..."
+& uv run python scripts\validate_repo_contract.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 Write-Host "Running pytest ..."
 & uv run python -m pytest -q
 exit $LASTEXITCODE

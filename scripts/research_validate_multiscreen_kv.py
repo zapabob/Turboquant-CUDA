@@ -1,4 +1,4 @@
-"""Evaluate captured KV with paper-style attention metrics and Multiscreen / Triality modes.
+"""Evaluate captured KV with paper-style attention metrics and Multiscreen / triality-proxy modes.
 
 Modes (``--mode``):
   **Default (production canonical / 実用正系):** ``key_only_block_so8_triality_vector`` —
@@ -7,7 +7,7 @@ Modes (``--mode``):
   Others: ``exact`` | ``key_only_random`` | ``key_only_block_so8_static`` |
   ``multiscreen_relevance``
 
-Triality vector mode uses ``--rotation-dir`` (default: ``artifacts/research_extension/triality_full_train/rotations``)
+Triality-proxy vector mode uses ``--rotation-dir`` (default: ``artifacts/research_extension/triality_full_train/rotations``)
 with artifacts from ``research_train_k_triality.py``.
 """
 
@@ -38,6 +38,7 @@ from turboquant.research_extension.k_triality import (
     PRODUCTION_K_TURBOQUANT_MODE,
     load_triality_proxy_rotations,
 )
+from turboquant.schema import ARTIFACT_METADATA_SCHEMA_VERSION, TURBOQUANT_REFERENCE_PAPER_URL
 
 ARTIFACT_ROOT = Path("artifacts") / "research_extension" / "multiscreen_kv"
 
@@ -45,7 +46,7 @@ ARTIFACT_ROOT = Path("artifacts") / "research_extension" / "multiscreen_kv"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Captured KV key-only eval: default mode is production Triality SO(8) + TurboQuant "
+            "Captured KV key-only eval: default mode is the production triality-proxy SO(8) + TurboQuant "
             f"({PRODUCTION_K_TURBOQUANT_MODE})."
         ),
     )
@@ -60,7 +61,7 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(CAPTURED_KEY_EVAL_MODES),
         help=(
             f"Evaluation mode (default: {PRODUCTION_K_TURBOQUANT_MODE} = 実用正系: "
-            "Triality vector + TurboQuant; needs --rotation-dir)."
+            "triality proxy / vector view + TurboQuant; needs --rotation-dir)."
         ),
     )
     parser.add_argument(
@@ -179,7 +180,10 @@ def main() -> int:
         "multiscreen_regular_bits": args.ms_regular_bits,
         "multiscreen_outlier_bits": args.ms_outlier_bits,
         "multiscreen_outlier_count": args.ms_outlier_count,
-        "reference_paper": "https://www.alphaxiv.org/abs/2604.01178",
+        "tq_schema_version": ARTIFACT_METADATA_SCHEMA_VERSION,
+        "tq_triality_mode": "triality_proxy" if "triality" in args.mode else "none",
+        "tq_triality_view": "vector" if "triality" in args.mode else "",
+        "reference_paper": TURBOQUANT_REFERENCE_PAPER_URL,
         "rows_csv": str(trial_path).replace("\\", "/"),
     }
     if bundles:

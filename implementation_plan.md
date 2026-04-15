@@ -1,5 +1,13 @@
 # TurboQuant on Qwen3.5-9B for RTX 3060 / Windows / CodexApp
 
+## Status Note
+
+This document captures the original first-pass scope. The repository has since
+grown to include research extensions such as triality-proxy SO(8) K-side
+rotations and a llama.cpp consumption path, but the ordering principle still
+holds: offline correctness and reproducibility come before online generation
+integration.
+
 ## 1. Objective
 
 This repository implements a research-grade TurboQuant prototype for KV-cache
@@ -66,14 +74,14 @@ Implement:
 
 - replacing Hugging Face attention during autoregressive generation
 - serving through vLLM
-- llama.cpp integration
+- full llama.cpp runtime parity and key-only CUDA optimization
 - speculative decoding
 - vision-path processing
 - long-context production benchmarking
 
 ## 5. Environment Contract
 
-- Python 3.11 or newer
+- Python 3.12.x only for the main development path
 - Windows-native PowerShell execution
 - `pathlib` for filesystem handling
 - no bash or GNU utility assumptions in scripts

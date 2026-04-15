@@ -1,25 +1,32 @@
-# TurboQuant CUDA — Paper-Faithful TurboQuant + Triality SO(8) Research
+# TurboQuant CUDA — Paper-Faithful TurboQuant + Triality-Proxy SO(8) Research
 
 Paper-faithful PyTorch implementation of the TurboQuant KV-cache compression algorithm,
-Qwen3.5-9B captured KV replay, and K/V research extensions including Triality SO(8) learned rotations.
+Qwen3.5-9B captured KV replay, and K/V research extensions including triality-proxy SO(8) learned rotations.
 **Windows + `uv` + Python 3.12.x**; CUDA via `uv sync --extra cu128`.
 
 - **What**: Reproduces TurboQuant Stage 1 (sphere Lloyd-Max) + Stage 2 (inner-product estimator + QJL sketch) faithful to the paper, then layers research extensions on top.
-- **Production K path**: Multiscreen relevance → per-channel mixed-bit allocation → Triality SO(8) proxy (vector view) + TurboQuant Stage 1+2 on captured KV.
+- **Production K path**: Multiscreen relevance → per-channel mixed-bit allocation → triality-proxy SO(8) (vector proxy view) + TurboQuant Stage 1+2 on captured KV.
 - **Validation order**: synthetic → attention → captured (lock offline correctness first).
+
+## Scope Layers
+
+- **Paper-faithful**: TurboQuant Stage 1 / Stage 2 math, paper mixed-bit presets, synthetic + captured attention replay.
+- **Production canonical**: `key_only_block_so8_triality_vector`, which is the current **triality-proxy** vector-view K-only path. The runtime mode name is legacy; the math label is proxy, not true Spin(8) triality.
+- **Research / ablation**: random/static SO(8), learned block-SO(8), proxy view comparisons, value-codec experiments, and future true `triality_spin8` work.
 
 ---
 
-## Triality SO(8): Key Differentiator
+## Triality-Proxy SO(8): Current Research Differentiator
 
-The distinguishing research contribution of this repo is **per-layer learned SO(8) block rotations** applied to the K side before TurboQuant quantization.
+The distinguishing current research contribution of this repo is **per-layer learned SO(8) block rotations** applied to the K side before TurboQuant quantization via a triality-proxy view family.
 
 ### What it is
 
 - The key head dimension is split into **8-dimensional blocks**.
 - Each block is rotated by an element of **SO(8)** fit to minimize reconstruction loss on captured KV via gradient descent through the matrix exponential of a skew-symmetric generator (`block_so8_from_skew`).
-- **Triality proxy** (`triality_proxy.py`) provides 3 views of the learned rotation: `vector`, `spinor_plus_proxy`, `spinor_minus_proxy`.
-- The production canonical K path uses the **`vector` view** with mode `key_only_block_so8_triality_vector` (see `k_triality.PRODUCTION_K_TURBOQUANT_MODE` / `PRODUCTION_K_TURBOQUANT_VIEW`).
+- **Triality proxy** (`triality_proxy.py`) provides 3 empirical proxy views of the learned rotation: `vector`, `spinor_plus_proxy`, `spinor_minus_proxy`.
+- These proxy views are **not** strict Spin(8) vector / half-spinor representations. True `triality_spin8` work is future research mode and is not the production default yet.
+- The production canonical K path uses the **`vector` proxy view** with mode `key_only_block_so8_triality_vector` (see `k_triality.PRODUCTION_K_TURBOQUANT_MODE` / `PRODUCTION_K_TURBOQUANT_VIEW`).
 - Trained rotations are saved to `rotations/*.pt` and loaded with `--rotation-dir`.
 
 ### Why it matters
@@ -45,7 +52,7 @@ Ablation modes (`key_only_random`, static/learned SO(8), `full_kv`) remain avail
 | Layer | Role |
 | --- | --- |
 | `turboquant.paper_baseline` | Paper-faithful Stage 1 (sphere Lloyd-Max → `QuantizedMSEBatch`) + Stage 2 (QJL sketch residual correction → `QuantizedProdBatch`) |
-| `turboquant.research_extension` | K/V codecs, V sensitivity, `ProtectedValueCodec`, Multiscreen KV relevance gate, **Triality SO(8) proxy**, production K modes |
+| `turboquant.research_extension` | K/V codecs, V sensitivity, `ProtectedValueCodec`, Multiscreen KV relevance gate, **triality-proxy SO(8)**, production K modes |
 | `turboquant.adapters.hf_qwen` | Optional: HF/Qwen KV capture from bf16/4bit/8bit weight loads |
 
 ### Rotation policies
@@ -65,7 +72,40 @@ Ablation modes (`key_only_random`, static/learned SO(8), `full_kv`) remain avail
 | --- | --- |
 | [zapabob/multiscreen-pytorch](https://github.com/zapabob/multiscreen-pytorch) | PyTorch reference implementation of the Multiscreen architecture. `trim_and_square` + MiPE KV relevance scoring feeds into `research_extension` |
 | [zapabob/Hypura](https://github.com/zapabob/Hypura) | GPU/RAM/NVMe tiered inference scheduler; combined with Multiscreen KV window cap for VRAM reduction |
-| [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) | llama.cpp fork with TrialityS08 rotation + TurboQuant support |
+| [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) | llama.cpp fork for consuming TurboQuant / triality-proxy artifacts on the GGUF side |
+
+---
+
+## Build Contract
+
+This workspace is expected to stay aligned with two upstream sources of truth:
+
+- **PyTorch / offline quantization semantics:** [zapabob/Turboquant-CUDA](https://github.com/zapabob/Turboquant-CUDA)
+- **GGUF / runtime consumption path:** vendored [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) at `vendor/llama.cpp`
+
+Rules:
+
+- `.gitmodules` must keep `vendor/llama.cpp` pinned to `https://github.com/zapabob/llama.cpp.git`.
+- Rust / Hypura builds must use the vendored `vendor/llama.cpp`, or `LLAMA_CPP_DIR` / `HYPURA_LLAMA_CPP_DIR` must point to a **zapabob/llama.cpp-compatible** checkout.
+- A zapabob-compatible checkout is validated by the presence of the TurboQuant runtime files `src/llama-turboquant.h` and `src/llama-turboquant.cpp` plus the expected TurboQuant / triality symbols.
+- Repo-level consistency is checked by `repo_contract.toml` and `scripts\validate_repo_contract.py`.
+
+Validation:
+
+```powershell
+uv run python scripts\validate_repo_contract.py
+```
+
+This validation is also part of `.\scripts\run_production_tests.ps1`.
+
+For Rust workspace builds, prefer:
+
+```powershell
+.\scripts\build_rust_workspace.ps1 -Package hypura -NoCuda
+```
+
+This runs the same contract validation before invoking `cargo build`.
+If `rust\target` is pressuring disk space, add `-TargetDir "C:\path\to\cargo-target"` to move Cargo artifacts to a roomier drive.
 
 ---
 
@@ -197,10 +237,10 @@ uv run python scripts\research_validate_k_triality.py `
 
 **Important**: Never run multiple evals/pipelines on the **same `--output-dir`** concurrently.
 
-### 4. Mixed-bit Multiscreen + Triality
+### 4. Mixed-bit Multiscreen + Triality Proxy
 
 ```powershell
-# Production K path (Triality SO(8) vector, default --mode)
+# Production K path (triality-proxy SO(8), vector proxy view, default --mode)
 uv run python scripts\research_validate_multiscreen_kv.py `
   --captured-dir artifacts\kv_4bit --eval-device cuda
 

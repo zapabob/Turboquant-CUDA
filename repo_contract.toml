@@ -1,0 +1,42 @@
+[repositories]
+turboquant_name = "zapabob/Turboquant-CUDA"
+turboquant_url = "https://github.com/zapabob/Turboquant-CUDA.git"
+llama_cpp_name = "zapabob/llama.cpp"
+llama_cpp_url = "https://github.com/zapabob/llama.cpp.git"
+
+[paths]
+vendored_llama_cpp = "vendor/llama.cpp"
+rust_build_script = "rust/hypura-sys/build.rs"
+readme = "README.md"
+claude = "CLAUDE.md"
+
+[rust]
+llama_cpp_env_vars = ["LLAMA_CPP_DIR", "HYPURA_LLAMA_CPP_DIR"]
+llama_cpp_candidate_suffixes = ["../vendor/llama.cpp", "../../vendor/llama.cpp"]
+
+[llama_cpp_compat]
+required_header = "src/llama-turboquant.h"
+required_header_markers = [
+  "llama_turboquant_runtime_config",
+  "llama_turboquant_artifact",
+  "llama_turboquant_save_artifact",
+]
+required_source = "src/llama-turboquant.cpp"
+required_source_markers = [
+  "TQCUDA",
+  "llama_turboquant_runtime_from_env",
+  "llama_turboquant_load_artifact",
+]
+
+[docs]
+required_readme_markers = [
+  "Build Contract",
+  "zapabob/Turboquant-CUDA",
+  "zapabob/llama.cpp",
+  "scripts\\validate_repo_contract.py",
+]
+required_claude_markers = [
+  "Build Contract",
+  "zapabob/Turboquant-CUDA",
+  "zapabob/llama.cpp",
+]

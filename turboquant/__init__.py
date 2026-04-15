@@ -2,6 +2,24 @@
 
 from turboquant.analysis import summarize_layer_thresholds, summarize_trial_metrics
 from turboquant.allocation import ChannelBitAllocation
+from turboquant.gguf_profiles import (
+    build_hypura_bridge_config,
+    build_hypura_serve_command,
+    GGUF_HYPURA_COMPAT_AUTO,
+    GGUF_HYPURA_COMPAT_OFF,
+    GGUF_TURBOQUANT_EXACT_PROFILE,
+    HypuraTurboQuantBridgeConfig,
+    TurboQuantGGUFManifest,
+    TurboQuantGGUFProfile,
+    build_paper_gguf_profile,
+    build_so8_triality_vector_gguf_profile,
+    infer_gguf_attention_head_dim,
+    infer_gguf_block_count,
+    package_turboquant_gguf,
+    read_hypura_gguf_bridge_config,
+    read_turboquant_gguf_manifest,
+    resolve_hypura_compatibility_bridge,
+)
 from turboquant.kv_codec import KVCodec, KVCodecConfig
 from turboquant.paper_baseline import (
     PAPER_BASELINE_MODES,
@@ -38,6 +56,12 @@ from turboquant.types import TurboQuantMSEConfig, TurboQuantProdConfig
 
 __all__ = [
     "ChannelBitAllocation",
+    "build_hypura_bridge_config",
+    "build_hypura_serve_command",
+    "GGUF_HYPURA_COMPAT_AUTO",
+    "GGUF_HYPURA_COMPAT_OFF",
+    "GGUF_TURBOQUANT_EXACT_PROFILE",
+    "HypuraTurboQuantBridgeConfig",
     "KeyResearchConfig",
     "KVCodec",
     "KVCodecConfig",
@@ -50,15 +74,25 @@ __all__ = [
     "PaperTurboQuantProd",
     "ProtectedValueCodec",
     "TRIALITY_PROXY_VIEWS",
+    "TurboQuantGGUFManifest",
+    "TurboQuantGGUFProfile",
     "TrialityProxyMSE",
     "TrialityProxyProd",
     "RESEARCH_SCHEMA_KIND",
     "V_ABLATION_MODES",
     "ValueResearchConfig",
+    "build_paper_gguf_profile",
     "build_paper_turboquant_config",
     "build_research_turboquant_config",
+    "build_so8_triality_vector_gguf_profile",
     "evaluate_paper_attention_grid",
+    "infer_gguf_attention_head_dim",
+    "infer_gguf_block_count",
+    "package_turboquant_gguf",
+    "read_hypura_gguf_bridge_config",
     "read_turboquant_config",
+    "read_turboquant_gguf_manifest",
+    "resolve_hypura_compatibility_bridge",
     "summarize_layer_thresholds",
     "summarize_metric_trials",
     "summarize_trial_metrics",

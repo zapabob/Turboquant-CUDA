@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -10,15 +11,19 @@ import pandas as pd
 import pytest
 import torch
 
+from turboquant.allocation import ChannelBitAllocation
+from turboquant.schema import build_turboquant_artifact_metadata
 from tests.test_capture import build_capture_dir
 from turboquant.research_extension.k_triality import (
     TRIALITY_PROXY_VIEWS,
+    TrialityRotationArtifact,
     _bundle_keys_filtered,
     _stable_sort_bundles,
     compute_triality_statistics,
     evaluate_triality_proxy_captured,
     load_captured_runs,
     load_triality_proxy_rotations,
+    save_triality_proxy_rotations,
 )
 
 
@@ -27,6 +32,12 @@ SPEC = importlib.util.spec_from_file_location("research_validate_k_triality", SC
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+
+TRAIN_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "research_train_k_triality.py"
+TRAIN_SPEC = importlib.util.spec_from_file_location("research_train_k_triality", TRAIN_SCRIPT_PATH)
+assert TRAIN_SPEC is not None and TRAIN_SPEC.loader is not None
+TRAIN_MODULE = importlib.util.module_from_spec(TRAIN_SPEC)
+TRAIN_SPEC.loader.exec_module(TRAIN_MODULE)
 
 
 def test_eval_checkpoint_writes_status_file(tmp_path: Path) -> None:
@@ -242,6 +253,175 @@ def test_evaluate_triality_resume_matches_full_run(tmp_path: Path) -> None:
 def test_load_triality_proxy_rotations_requires_files(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="No triality rotation artifacts"):
         load_triality_proxy_rotations(tmp_path)
+
+
+def test_save_and_load_triality_proxy_rotations_preserve_explicit_metadata(tmp_path: Path) -> None:
+    metadata = build_turboquant_artifact_metadata(
+        total_bits=2.5,
+        qjl_bits=1,
+        qjl_dim=8,
+        rotation_policy="block_so8_learned",
+        rotation_seed=17,
+        qjl_seed=71,
+        triality_mode="triality_proxy",
+        triality_view="vector",
+        width=8,
+        allocation=ChannelBitAllocation.preset(effective_bits=1.5, width=8),
+    )
+    artifact = TrialityRotationArtifact(
+        layer_idx=0,
+        bits=2.5,
+        view="vector",
+        rotation=torch.eye(8, dtype=torch.float32),
+        rotation_seed=17,
+        qjl_seed=71,
+        metadata=metadata,
+    )
+    frame = save_triality_proxy_rotations([artifact], tmp_path)
+    assert frame.loc[0, "tq_triality_mode"] == "triality_proxy"
+    loaded = load_triality_proxy_rotations(tmp_path)
+    restored = loaded[(0, 2.5, "vector")]
+    assert restored.metadata["tq_stage1_effective_bits"] == 1.25
+    assert restored.metadata["tq_runtime_bits_per_channel"] == 2.25
+    assert restored.metadata["tq_triality_view"] == "vector"
+
+
+def test_train_script_writes_meta_and_dynamic_head_dim_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    metadata = build_turboquant_artifact_metadata(
+        total_bits=2.5,
+        qjl_bits=1,
+        qjl_dim=8,
+        rotation_policy="block_so8_learned",
+        rotation_seed=17,
+        qjl_seed=71,
+        triality_mode="triality_proxy",
+        triality_view="vector",
+        width=8,
+        allocation=ChannelBitAllocation.preset(effective_bits=1.5, width=8),
+    )
+    artifacts = [
+        TrialityRotationArtifact(
+            layer_idx=0,
+            bits=2.5,
+            view="vector",
+            rotation=torch.eye(8, dtype=torch.float32),
+            rotation_seed=17,
+            qjl_seed=71,
+            metadata=metadata,
+        )
+    ]
+    training_summary = pd.DataFrame(
+        [
+            {
+                "layer": 0,
+                "bits": 2.5,
+                "bit_setting": "2.5",
+                "view": "vector",
+                "mode": "key_only_block_so8_triality_vector",
+            }
+        ]
+    )
+
+    def fake_fit_triality_proxy_rotations(**_kwargs):
+        return artifacts, training_summary
+
+    monkeypatch.setattr(TRAIN_MODULE, "fit_triality_proxy_rotations", fake_fit_triality_proxy_rotations)
+
+    out = tmp_path / "train_out"
+    argv = [
+        "research_train_k_triality.py",
+        "--kv-dir",
+        str(tmp_path / "kv"),
+        "--bits",
+        "2.5,3.5",
+        "--output-dir",
+        str(out),
+        "--write-config",
+    ]
+    old = sys.argv
+    try:
+        sys.argv = argv
+        code = TRAIN_MODULE.main()
+    finally:
+        sys.argv = old
+
+    assert code == 0
+    meta = json.loads((out / "metrics" / "triality_training_run_meta.json").read_text(encoding="utf-8"))
+    assert meta["head_dim"] == 8
+    assert meta["tq_triality_mode"] == "triality_proxy"
+    assert meta["bit_grid"] == [2.5, 3.5]
+    config = json.loads((out / "turboquant_config.research.json").read_text(encoding="utf-8"))
+    assert config["k_codec"]["head_dim"] == 8
+    assert config["k_codec"]["qjl_dim"] == 8
+
+
+def test_eval_script_writes_meta_and_dynamic_head_dim_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    metrics_in = tmp_path / "input_trials.csv"
+    pd.DataFrame([{"mode": "key_only_block_so8_triality_vector"}]).to_csv(metrics_in, index=False)
+    rot_dir = tmp_path / "rotations"
+    rot_dir.mkdir(parents=True, exist_ok=True)
+    metadata = build_turboquant_artifact_metadata(
+        total_bits=2.5,
+        qjl_bits=1,
+        qjl_dim=8,
+        rotation_policy="block_so8_learned",
+        rotation_seed=17,
+        qjl_seed=71,
+        triality_mode="triality_proxy",
+        triality_view="vector",
+        width=8,
+        allocation=ChannelBitAllocation.preset(effective_bits=1.5, width=8),
+    )
+    save_triality_proxy_rotations(
+        [
+            TrialityRotationArtifact(
+                layer_idx=0,
+                bits=2.5,
+                view="vector",
+                rotation=torch.eye(8, dtype=torch.float32),
+                rotation_seed=17,
+                qjl_seed=71,
+                metadata=metadata,
+            )
+        ],
+        rot_dir,
+    )
+
+    summary_frame = pd.DataFrame([{"mode": "key_only_block_so8_triality_vector", "bits": 2.5}])
+    mean_pm_sd = pd.DataFrame([{"mode": "key_only_block_so8_triality_vector", "bit_setting": "2.5"}])
+
+    def fake_summarize_from_trials(_trial_frame, skip_statistics=False):
+        return summary_frame, mean_pm_sd, pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    monkeypatch.setattr(MODULE, "summarize_from_trials", fake_summarize_from_trials)
+
+    out = tmp_path / "eval_out"
+    argv = [
+        "research_validate_k_triality.py",
+        "--from-existing-trials",
+        str(metrics_in),
+        "--rotation-dir",
+        str(rot_dir),
+        "--output-dir",
+        str(out),
+        "--skip-plots",
+        "--skip-statistics",
+        "--write-config",
+    ]
+    old = sys.argv
+    try:
+        sys.argv = argv
+        code = MODULE.main()
+    finally:
+        sys.argv = old
+
+    assert code == 0
+    meta = json.loads((out / "metrics" / "triality_eval_run_meta.json").read_text(encoding="utf-8"))
+    assert meta["head_dim"] == 8
+    assert meta["tq_triality_mode"] == "triality_proxy"
+    config = json.loads((out / "turboquant_config.research.json").read_text(encoding="utf-8"))
+    assert config["k_codec"]["head_dim"] == 8
+    assert config["k_codec"]["qjl_dim"] == 8
 
 
 def test_compute_triality_statistics_rejects_empty_frame() -> None:

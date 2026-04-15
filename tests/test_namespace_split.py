@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import torch
 
+from turboquant.allocation import ChannelBitAllocation
 from turboquant.paper_baseline import (
     PAPER_BASELINE_MODES,
     PaperMSEConfig,
@@ -13,8 +14,10 @@ from turboquant.paper_baseline import (
 )
 from turboquant.research_extension import KeyResearchConfig, ValueResearchConfig
 from turboquant.schema import (
+    ARTIFACT_METADATA_SCHEMA_VERSION,
     PAPER_SCHEMA_KIND,
     RESEARCH_SCHEMA_KIND,
+    build_turboquant_artifact_metadata,
     build_paper_turboquant_config,
     build_research_turboquant_config,
     read_turboquant_config,
@@ -57,11 +60,12 @@ def test_paper_mse_wrapper_uses_random_haar_only() -> None:
 
 
 def test_research_config_conversion_keeps_kv_split_fields() -> None:
-    key_cfg = KeyResearchConfig(head_dim=128, bits_total=4, rotation_policy="block_so8_learned")
+    key_cfg = KeyResearchConfig(head_dim=128, bits_total=4, qjl_dim=96, rotation_policy="block_so8_learned")
     value_cfg = ValueResearchConfig(base_bits=2, high_bits=8, protected_fraction=0.2, low_rank_rank=4)
     kv_cfg = key_cfg.to_kv_codec_config(value_cfg.to_value_codec_config())
     assert kv_cfg.head_dim == 128
     assert kv_cfg.key_bits == 4
+    assert kv_cfg.qjl_dim == 96
     assert kv_cfg.value_codec.base_bits == 2
     assert kv_cfg.value_codec.low_rank_rank == 4
 
@@ -78,16 +82,22 @@ def test_paper_schema_roundtrip(tmp_path) -> None:
 
 def test_research_schema_roundtrip_and_cross_load_rejection(tmp_path) -> None:
     payload = build_research_turboquant_config(
-        key_config=KeyResearchConfig(head_dim=128, bits_total=4),
+        key_config=KeyResearchConfig(head_dim=128, bits_total=4, qjl_dim=64),
         value_config=ValueResearchConfig(base_bits=2, high_bits=8, protected_fraction=0.2, low_rank_rank=4),
     )
     path = tmp_path / "turboquant_config.research.json"
     path.write_text(__import__("json").dumps(payload, indent=2), encoding="utf-8")
     loaded = read_turboquant_config(path, expected_kind=RESEARCH_SCHEMA_KIND)
     assert loaded["schema_kind"] == RESEARCH_SCHEMA_KIND
-    assert loaded["k_codec"]["bits_total"] == 4
+    assert loaded["k_codec"]["bits_total"] == 4.0
     assert loaded["v_codec"]["low_rank_rank"] == 4
     assert loaded["k_codec"]["view_mode"] == "triality_proxy"
+    assert loaded["k_codec"]["triality_mode"] == "triality_proxy"
+    assert loaded["k_codec"]["triality_view"] == "vector"
+    assert loaded["k_codec"]["qjl_dim"] == 64
+    assert loaded["k_codec"]["stage1_effective_bits"] == 3.0
+    assert loaded["k_codec"]["stage1_bitwidth_payload_dtype"] == "uint8"
+    assert loaded["k_codec"]["sign_pack_format"] == "int8_unpacked_binary"
     assert loaded["k_codec"]["views"] == ["vector", "spinor_plus_proxy", "spinor_minus_proxy"]
     assert loaded["view_selection"] == "report_all"
     try:
@@ -96,3 +106,25 @@ def test_research_schema_roundtrip_and_cross_load_rejection(tmp_path) -> None:
         assert "Expected schema kind" in str(exc)
     else:
         raise AssertionError("cross-load between paper and research schema should fail")
+
+
+def test_artifact_metadata_explicitly_separates_total_and_stage1_bits() -> None:
+    metadata = build_turboquant_artifact_metadata(
+        total_bits=3.5,
+        qjl_bits=1,
+        qjl_dim=128,
+        rotation_policy="block_so8_learned",
+        rotation_seed=17,
+        qjl_seed=71,
+        triality_mode="triality_proxy",
+        triality_view="vector",
+        width=128,
+        allocation=ChannelBitAllocation.preset(effective_bits=2.5, width=128),
+    )
+    assert metadata["tq_schema_version"] == ARTIFACT_METADATA_SCHEMA_VERSION
+    assert metadata["tq_total_bits"] == 3.5
+    assert metadata["tq_stage1_effective_bits"] == 2.25
+    assert metadata["tq_qjl_bits"] == 1
+    assert metadata["tq_runtime_bits_per_channel"] == 3.25
+    assert metadata["tq_triality_mode"] == "triality_proxy"
+    assert metadata["tq_stage1_allocation_scheme"] == "magnitude-topk"

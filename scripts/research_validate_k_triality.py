@@ -30,8 +30,14 @@ from turboquant.research_extension import (
     compute_triality_selector_statistics,
     compute_triality_statistics,
     evaluate_triality_proxy_captured,
+    load_triality_proxy_rotations,
 )
-from turboquant.schema import build_research_turboquant_config, write_turboquant_config
+from turboquant.schema import (
+    ARTIFACT_METADATA_SCHEMA_VERSION,
+    TURBOQUANT_REFERENCE_PAPER_URL,
+    build_research_turboquant_config,
+    write_turboquant_config,
+)
 
 
 ARTIFACT_ROOT = Path("artifacts") / "research_extension" / "triality_full_eval"
@@ -41,6 +47,14 @@ PLOT_MODES = ROTATION_COMPARE_MODES
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _infer_head_dim_from_rotation_dir(rotation_dir: Path) -> int:
+    artifacts = load_triality_proxy_rotations(rotation_dir)
+    dims = sorted({int(artifact.rotation.shape[-1]) for artifact in artifacts.values()})
+    if len(dims) != 1:
+        raise ValueError(f"Inconsistent triality rotation head dimensions in {rotation_dir}: {dims}")
+    return dims[0]
 
 
 def _log_line(
@@ -415,6 +429,7 @@ def maybe_write_best_per_layer_outputs(
     rotation_dir: Path,
 ) -> dict[str, Path] | None:
     selector_dir = ensure_dir(output_dir / "best_per_layer")
+    head_dim = _infer_head_dim_from_rotation_dir(rotation_dir)
     manifest, selected_frame = build_best_per_layer_selector(trial_frame)
     selector_stats = compute_triality_selector_statistics(selected_frame, trial_frame)
     selector_stats_path = selector_dir / "triality_best_per_layer_gate.csv"
@@ -441,7 +456,8 @@ def maybe_write_best_per_layer_outputs(
     )
     payload = build_research_turboquant_config(
         key_config=KeyResearchConfig(
-            head_dim=128,
+            head_dim=head_dim,
+            qjl_dim=head_dim,
             view_selection="best_per_layer",
             views=TRIALITY_PROXY_VIEWS,
         ),
@@ -614,6 +630,37 @@ def main() -> int:
         else:
             selector_outputs = None
 
+        rotation_dir_path = Path(args.rotation_dir)
+        head_dim = _infer_head_dim_from_rotation_dir(rotation_dir_path)
+        run_meta_path = metrics_dir / "triality_eval_run_meta.json"
+        run_meta = {
+            "timestamp_utc": _utc_now(),
+            "script": "research_validate_k_triality.py",
+            "kv_dir": str(Path(args.kv_dir).resolve()),
+            "from_existing_trials": str(Path(args.from_existing_trials).resolve()) if args.from_existing_trials else None,
+            "rotation_dir": str(rotation_dir_path.resolve()),
+            "output_dir": str(output_dir.resolve()),
+            "eval_device": args.eval_device,
+            "trials": args.trials,
+            "max_layers": args.max_layers,
+            "bit_grid": bit_grid,
+            "head_dim": head_dim,
+            "tq_schema_version": ARTIFACT_METADATA_SCHEMA_VERSION,
+            "tq_triality_mode": "triality_proxy",
+            "tq_triality_views": list(TRIALITY_PROXY_VIEWS),
+            "reference_paper": TURBOQUANT_REFERENCE_PAPER_URL,
+            "trial_csv": str(output_paths["trial_csv"]).replace("\\", "/"),
+            "summary_csv": str(output_paths["summary_csv"]).replace("\\", "/"),
+            "mean_pm_sd_csv": str(output_paths["mean_pm_sd_csv"]).replace("\\", "/"),
+            "statistics_csv": str(output_paths["statistics_csv"]).replace("\\", "/"),
+            "friedman_csv": str(output_paths["friedman_csv"]).replace("\\", "/"),
+            "pairwise_csv": str(output_paths["pairwise_csv"]).replace("\\", "/"),
+            "selector_outputs": {
+                key: str(value).replace("\\", "/") for key, value in selector_outputs.items()
+            } if selector_outputs is not None else None,
+        }
+        run_meta_path.write_text(json.dumps(run_meta, indent=2) + "\n", encoding="utf-8")
+
         if args.evaluate_only:
             checkpoint.start("finish")
             checkpoint.complete("finish")
@@ -638,7 +685,11 @@ def main() -> int:
             checkpoint.start("config_write")
             config_out = Path(args.config_out) if args.config_out else output_dir / "turboquant_config.research.json"
             payload = build_research_turboquant_config(
-                key_config=KeyResearchConfig(head_dim=128, views=TRIALITY_PROXY_VIEWS),
+                key_config=KeyResearchConfig(
+                    head_dim=head_dim,
+                    qjl_dim=head_dim,
+                    views=TRIALITY_PROXY_VIEWS,
+                ),
                 value_config=ValueResearchConfig(),
                 artifact_refs={
                     "trial_csv": str(output_paths["trial_csv"]).replace("\\", "/"),
@@ -647,7 +698,8 @@ def main() -> int:
                     "statistics_csv": str(output_paths["statistics_csv"]).replace("\\", "/"),
                     "friedman_csv": str(output_paths["friedman_csv"]).replace("\\", "/"),
                     "pairwise_csv": str(output_paths["pairwise_csv"]).replace("\\", "/"),
-                    "rotation_dir": str(Path(args.rotation_dir)).replace("\\", "/"),
+                    "rotation_dir": str(rotation_dir_path).replace("\\", "/"),
+                    "eval_run_meta_json": str(run_meta_path).replace("\\", "/"),
                 },
             )
             write_turboquant_config(config_out, payload)

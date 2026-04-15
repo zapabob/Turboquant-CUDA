@@ -8,6 +8,20 @@ Paper-faithful TurboQuant prototype for KV-cache compression experiments on Qwen
 
 **Primary dev GPU (this repo): RTX 3060 12GB.** Prefer **4-bit or 8-bit weight load** and a **conservative `--max-length`** for KV capture; bf16 full-model load is documented as **~24GB-class** VRAM, not the default path on 12GB.
 
+## Build Contract
+
+Treat this workspace as a downstream integration repo that must stay aligned with:
+
+- `zapabob/Turboquant-CUDA` for PyTorch / offline TurboQuant semantics
+- `zapabob/llama.cpp` for the vendored GGUF / runtime path at `vendor/llama.cpp`
+
+Operational rules:
+
+- `.gitmodules` must keep `vendor/llama.cpp` pinned to `https://github.com/zapabob/llama.cpp.git`.
+- Rust / Hypura builds should use `vendor/llama.cpp` by default; `LLAMA_CPP_DIR` and `HYPURA_LLAMA_CPP_DIR` are only for compatible `zapabob/llama.cpp` mirrors/checkouts.
+- A compatible checkout must still expose the TurboQuant runtime files `src/llama-turboquant.h` and `src/llama-turboquant.cpp` with the expected TurboQuant / triality symbols.
+- Before claiming the repo is in a good build state, run `uv run python scripts\validate_repo_contract.py`.
+
 ### Production canonical K-side TurboQuant (実用正系)
 
 For **practical / shipping-style** key quantization on captured (or runtime) KV, treat **Triality SO(8) proxy + TurboQuant** as the reference path:
@@ -82,6 +96,9 @@ uv run python scripts\research_validate_k_triality.py --resume --output-dir arti
 # Rust workspace (Hypura + llama.cpp FFI): semantic versions hypura 0.4.0 / hypura-sys 0.3.0 / kobold_gguf_gui 0.2.0; incremental in rust/.cargo/config.toml
 # Mirror copy: `C:\Users\downl\Desktop\hypura-main\hypura-main` (same workspace + `vendor/llama.cpp`). Override llama path: `LLAMA_CPP_DIR` or `HYPURA_LLAMA_CPP_DIR`.
 # cd rust; $env:HYPURA_NO_CUDA=1; cargo build -p hypura   # CPU-only check without CUDA toolkit
+.\scripts\build_rust_workspace.ps1 -Package hypura -NoCuda
+# If H:\ is low on space, redirect artifacts:
+.\scripts\build_rust_workspace.ps1 -Package hypura -NoCuda -TargetDir "C:\Users\downl\cargo-targets\hub-qwen35-rust"
 
 # Production bundle (env_check + pytest)
 .\scripts\run_production_tests.ps1

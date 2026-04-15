@@ -1,7 +1,8 @@
 use std::env;
 use std::path::PathBuf;
 
-/// Resolve vendored llama.cpp: env override, then workspace-local `vendor/`, then hub layout `rust/../vendor/`.
+/// Resolve a zapabob/llama.cpp-compatible checkout: env override, then
+/// workspace-local `vendor/`, then hub layout `rust/../vendor/`.
 fn resolve_llama_cpp_dir(manifest_dir: &str) -> PathBuf {
     for key in ["LLAMA_CPP_DIR", "HYPURA_LLAMA_CPP_DIR"] {
         if let Ok(p) = env::var(key) {
@@ -21,7 +22,7 @@ fn resolve_llama_cpp_dir(manifest_dir: &str) -> PathBuf {
         }
     }
     panic!(
-        "llama.cpp not found. Set LLAMA_CPP_DIR or HYPURA_LLAMA_CPP_DIR, or place vendor/llama.cpp (tried {:?})",
+        "zapabob/llama.cpp-compatible checkout not found. Set LLAMA_CPP_DIR or HYPURA_LLAMA_CPP_DIR, or place vendor/llama.cpp (tried {:?})",
         candidates
     );
 }
@@ -36,6 +37,7 @@ fn main() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let use_metal = target_os == "macos";
     let use_cuda = !use_metal && cuda_is_available();
+    configure_cmake_num_jobs(&target_os);
 
     // ── Build llama.cpp via cmake ────────────────────────────────────────────
     let mut cmake_config = cmake::Config::new(&llama_dir);
@@ -43,6 +45,8 @@ fn main() {
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("CMAKE_BUILD_TYPE", "Release")
         .define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreadedDLL")
+        // Windows try_run cleanup is more reproducible without opportunistic sccache handles.
+        .define("GGML_CCACHE", "OFF")
         .define("LLAMA_BUILD_TESTS", "OFF")
         .define("LLAMA_BUILD_EXAMPLES", "OFF")
         .define("LLAMA_BUILD_SERVER", "OFF")
@@ -201,6 +205,28 @@ fn main() {
 }
 
 // ── CUDA detection helpers ────────────────────────────────────────────────────
+
+fn configure_cmake_num_jobs(target_os: &str) {
+    if target_os != "windows" {
+        return;
+    }
+
+    if let Ok(value) = env::var("HYPURA_CMAKE_NUM_JOBS") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            env::set_var("NUM_JOBS", trimmed);
+            println!("cargo:warning=Using HYPURA_CMAKE_NUM_JOBS={trimmed} for llama.cpp CMake builds.");
+            return;
+        }
+    }
+
+    if env::var_os("NUM_JOBS").is_none() {
+        env::set_var("NUM_JOBS", "1");
+        println!(
+            "cargo:warning=Defaulting NUM_JOBS=1 for Windows llama.cpp CMake builds to avoid MSVC link instability. Set HYPURA_CMAKE_NUM_JOBS to override."
+        );
+    }
+}
 
 fn cuda_is_available() -> bool {
     // Explicit opt-out
