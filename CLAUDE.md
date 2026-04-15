@@ -93,7 +93,7 @@ uv run python scripts\research_validate_k_triality.py --resume --output-dir arti
 # uv run python scripts\research_vram_multigroup_qwen.py --kv-dir artifacts\kv_4bit --eval-device cuda --trials 8 --modes exact,multiscreen_relevance,multiscreen_triality_vector --rotation-dir artifacts\research_extension\triality_full_train\rotations
 # Vector-only Triality (no multiscreen): add key_only_block_so8_triality_vector and same --rotation-dir if not default.
 
-# Rust workspace (Hypura + llama.cpp FFI): semantic versions hypura 0.4.0 / hypura-sys 0.3.0 / kobold_gguf_gui 0.2.0; incremental in rust/.cargo/config.toml
+# Rust workspace (Hypura + llama.cpp FFI): semantic versions hypura 0.7.0 / hypura-sys 0.7.0 / kobold_gguf_gui 0.2.0; incremental in rust/.cargo/config.toml
 # Mirror copy: `C:\Users\downl\Desktop\hypura-main\hypura-main` (same workspace + `vendor/llama.cpp`). Override llama path: `LLAMA_CPP_DIR` or `HYPURA_LLAMA_CPP_DIR`.
 # cd rust; $env:HYPURA_NO_CUDA=1; cargo build -p hypura   # CPU-only check without CUDA toolkit
 .\scripts\build_rust_workspace.ps1 -Package hypura -NoCuda

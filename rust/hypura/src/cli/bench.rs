@@ -6,11 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use hypura::compute::ffi::SamplingParams;
 use hypura::compute::inference::*;
-use hypura::model::turboquant_sidecar::TurboQuantMode;
+use hypura::model::turboquant_sidecar::{RotationPolicy, TurboQuantMode};
 use hypura::scheduler::types::StorageTier;
 use hypura::telemetry::metrics::TelemetryEmitter;
+use indicatif::{ProgressBar, ProgressStyle};
 
-use super::fmt_util::{format_bytes, format_params};
+use super::fmt_util::{cli_progress_enabled, format_bytes, format_params};
 
 const DEFAULT_PROMPT: &str = "Write a short paragraph about artificial intelligence.";
 
@@ -23,7 +24,7 @@ pub fn run(
     force: bool,
     turboquant_mode: TurboQuantMode,
     turboquant_config: Option<&str>,
-    rotation_policy: Option<&str>,
+    rotation_policy: RotationPolicy,
     rotation_seed: u32,
 ) -> anyhow::Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
@@ -50,16 +51,22 @@ async fn run_async(
     _force: bool,
     turboquant_mode: TurboQuantMode,
     turboquant_config: Option<&str>,
-    _rotation_policy: Option<&str>,
-    _rotation_seed: u32,
+    rotation_policy: RotationPolicy,
+    rotation_seed: u32,
 ) -> anyhow::Result<()> {
     let path = Path::new(model_path);
     let prompt_text = prompt.unwrap_or(DEFAULT_PROMPT);
+    let llama_bridge = LlamaTurboquantCliBridge {
+        rotation_policy,
+        llama_rotation_seed: rotation_seed,
+        ..Default::default()
+    };
     let runtime = resolve_runtime_setup(
         path,
         context,
         turboquant_mode,
         turboquant_config.map(Path::new),
+        llama_bridge,
     )?;
 
     let has_nvme = runtime
@@ -157,7 +164,22 @@ async fn run_async(
         };
 
         println!("  Run 1: {baseline_label}");
-        println!("    Running...");
+        let tok_target = max_tokens as u64;
+        let pb = if cli_progress_enabled() {
+            let pb = ProgressBar::new(tok_target.max(1));
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template(
+                        "{spinner:.green} [{elapsed_precise}] [{bar:28.cyan/blue}] {pos}/{len} tok ETA {eta_precise} {msg}",
+                    )
+                    .unwrap()
+                    .progress_chars("##-"),
+            );
+            pb.set_message("baseline run");
+            pb
+        } else {
+            ProgressBar::hidden()
+        };
 
         let (token_tx, mut token_rx) = tokio::sync::mpsc::unbounded_channel();
         let path_c = path.to_path_buf();
@@ -177,21 +199,35 @@ async fn run_async(
             )
         });
 
-        // Drain tokens (discard output)
-        while token_rx.recv().await.is_some() {}
+        let mut n_tok: u64 = 0;
+        while token_rx.recv().await.is_some() {
+            n_tok = n_tok.saturating_add(1);
+            if cli_progress_enabled() {
+                pb.set_position(n_tok.min(tok_target));
+            }
+        }
 
         match handle.await {
             Ok(Ok(result)) => {
+                if cli_progress_enabled() {
+                    pb.finish_and_clear();
+                }
                 let wall_ms = wall_start.elapsed().as_secs_f64() * 1000.0;
                 print_run_result(&baseline_label, &result, wall_ms);
                 baseline_result = Some((result, wall_ms));
             }
             Ok(Err(e)) => {
+                if cli_progress_enabled() {
+                    pb.finish_and_clear();
+                }
                 println!("    Baseline failed: {e}");
                 println!("    Continuing with Hypura run...");
                 println!();
             }
             Err(e) => {
+                if cli_progress_enabled() {
+                    pb.finish_and_clear();
+                }
                 println!("    Baseline panicked: {e}");
                 println!("    Continuing with Hypura run...");
                 println!();
@@ -216,7 +252,22 @@ async fn run_async(
         "  {}: {run_label}",
         if run_baseline { "Run 2" } else { "Run" }
     );
-    println!("    Running...");
+    let tok_target2 = max_tokens as u64;
+    let pb2 = if cli_progress_enabled() {
+        let pb = ProgressBar::new(tok_target2.max(1));
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "{spinner:.green} [{elapsed_precise}] [{bar:28.cyan/blue}] {pos}/{len} tok ETA {eta_precise} {msg}",
+                )
+                .unwrap()
+                .progress_chars("##-"),
+        );
+        pb.set_message("Hypura run");
+        pb
+    } else {
+        ProgressBar::hidden()
+    };
 
     let (token_tx, mut token_rx) = tokio::sync::mpsc::unbounded_channel();
     let path_c = path.to_path_buf();
@@ -243,8 +294,17 @@ async fn run_async(
         )
     });
 
-    while token_rx.recv().await.is_some() {}
+    let mut n_tok2: u64 = 0;
+    while token_rx.recv().await.is_some() {
+        n_tok2 = n_tok2.saturating_add(1);
+        if cli_progress_enabled() {
+            pb2.set_position(n_tok2.min(tok_target2));
+        }
+    }
     let hypura_result = handle.await??;
+    if cli_progress_enabled() {
+        pb2.finish_and_clear();
+    }
     let hypura_wall_ms = wall_start.elapsed().as_secs_f64() * 1000.0;
 
     print_run_result(run_label, &hypura_result, hypura_wall_ms);

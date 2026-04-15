@@ -240,7 +240,11 @@ impl ResolvedTurboQuantConfig {
         self.source_path
             .as_ref()
             .map(|p| p.display().to_string())
-            .or_else(|| self.gguf_metadata.as_ref().map(|cfg| cfg.source_label().to_string()))
+            .or_else(|| {
+                self.gguf_metadata
+                    .as_ref()
+                    .map(|cfg| cfg.source_label().to_string())
+            })
             .unwrap_or_else(|| "none".to_string())
     }
 
@@ -301,6 +305,8 @@ pub fn resolve_turboquant_config(
                         gguf_metadata: Some(gguf_metadata),
                     });
                 }
+                // NOTE: Exact fallback preserves safety when research artifacts are missing.
+                // Broader "Triality-by-default without sidecar" alignment is tracked separately.
                 if mode == TurboQuantMode::ResearchKvSplit {
                     tracing::warn!(
                         "No TurboQuant research sidecar or GGUF metadata found next to {}. Falling back to exact runtime.",
@@ -721,10 +727,8 @@ mod tests {
     #[test]
     fn gguf_triality_metadata_resolves_without_sidecar() {
         let mut gguf = sample_gguf();
-        gguf.metadata.insert(
-            "hypura.turboquant.enabled".into(),
-            GgufValue::Bool(true),
-        );
+        gguf.metadata
+            .insert("hypura.turboquant.enabled".into(), GgufValue::Bool(true));
         gguf.metadata.insert(
             "hypura.turboquant.mode".into(),
             GgufValue::String("research-kv-split".into()),
@@ -751,9 +755,14 @@ mod tests {
         )
         .unwrap();
 
-        let gguf_cfg = resolved.gguf_metadata.expect("gguf metadata should be attached");
+        let gguf_cfg = resolved
+            .gguf_metadata
+            .expect("gguf metadata should be attached");
         assert_eq!(gguf_cfg.mode, TurboQuantMode::ResearchKvSplit);
-        assert_eq!(gguf_cfg.rotation_policy, Some(RotationPolicy::TrialitySpinorPlus));
+        assert_eq!(
+            gguf_cfg.rotation_policy,
+            Some(RotationPolicy::TrialitySpinorPlus)
+        );
         assert_eq!(gguf_cfg.triality_view.as_deref(), Some("spinor_plus_proxy"));
         assert_eq!(gguf_cfg.rotation_seed, 17);
     }

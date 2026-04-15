@@ -362,7 +362,7 @@ impl PrefetchState {
 
         let mut task_regions: Vec<Vec<(usize, usize, u64)>> = Vec::new();
 
-        if let (Some(ref experts), true) = (&maybe_experts, has_expert_layouts) {
+        if let (Some(experts), true) = (&maybe_experts, has_expert_layouts) {
             tracing::trace!(
                 "Expert-aware load: layer {} experts {:?}",
                 layer_idx,

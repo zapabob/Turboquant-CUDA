@@ -5,6 +5,9 @@ use std::path::Path;
 use hypura::cache::coactivation::CoActivationMatrix;
 use hypura::model::gguf::GgufFile;
 use hypura::model::tensor_role::TensorRole;
+use indicatif::{ProgressBar, ProgressStyle};
+
+use super::fmt_util::cli_progress_enabled;
 
 /// Rewrite fused expert tensors so co-activated experts are contiguous on disk.
 /// Reads the co-activation matrix (from previous inference runs) and reorders
@@ -73,6 +76,32 @@ pub fn run(model: &str) -> anyhow::Result<()> {
         .read(true)
         .open(&output_path)?;
 
+    let work_total = gguf
+        .tensors
+        .iter()
+        .filter(|tensor| {
+            TensorRole::from_name(&tensor.name) == TensorRole::MoeFusedExperts
+                && tensor
+                    .layer_index
+                    .is_some_and(|l| permutations.contains_key(&l))
+        })
+        .count() as u64;
+    let pb = if cli_progress_enabled() {
+        let pb = ProgressBar::new(work_total.max(1));
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} tensors ETA {eta_precise} {msg}",
+                )
+                .unwrap()
+                .progress_chars("##-"),
+        );
+        pb.set_message("reordering experts");
+        pb
+    } else {
+        ProgressBar::hidden()
+    };
+
     let mut reordered_count = 0usize;
     for tensor in &gguf.tensors {
         let role = TensorRole::from_name(&tensor.name);
@@ -123,6 +152,7 @@ pub fn run(model: &str) -> anyhow::Result<()> {
         file.seek(SeekFrom::Start(abs_offset))?;
         file.write_all(&reordered)?;
         reordered_count += 1;
+        pb.inc(1);
 
         tracing::info!(
             "Reordered {} experts in {} (stride={} bytes)",
@@ -137,6 +167,7 @@ pub fn run(model: &str) -> anyhow::Result<()> {
         reordered_count,
         output_path.display()
     );
+    pb.finish_with_message("done");
 
     // Save permutation data as sidecar for runtime loading
     let perm_path = output_path.with_extension("permutations.json");
