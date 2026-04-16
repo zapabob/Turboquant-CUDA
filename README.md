@@ -227,12 +227,55 @@ Primary outputs:
 - `artifacts\qwen_3060_matrix\qwen_3060_matrix_report.md`
 
 ### 3b. Observed reduced real outcome
-- Source bundle: `artifacts\qwen_3060_matrix\reports\qwen_3060_matrix_summary.md`
-- Evaluation shape: 4 prompt captures x 2 layers x 3 trials = 24 paired rows per mode/bit in the Wilcoxon-Holm tables.
-- `key_only_block_so8_triality_vector` reaches `1.000000 +/- 0.000000` logit cosine and `0.999349 +/- 0.001595` hidden cosine at 4-bit with `0.628906` memory ratio vs exact.
-- `multiscreen_relevance` is the strongest logit-side row in this reduced run at 4-bit with `1.002604 +/- 0.006379` logit cosine, `1.000000 +/- 0.000000` hidden cosine, and `0.660156` memory ratio.
-- `asym_q8_turbo4` is the most aggressive memory-saving comparison baseline that still preserves strong logits here, holding `0.378906` memory ratio with `1.001302 +/- 0.005881` logit cosine and `0.994141 +/- 0.004784` hidden cosine.
-- `full_kv` remains the memory floor but still pays the hidden-state penalty at low bits; at 3-bit it lands at `0.193359` memory ratio with `0.983073 +/- 0.003189` hidden cosine.
+- Source files:
+  - `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_mean_pm_sd.csv`
+  - `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_summary.csv`
+  - `artifacts\qwen_3060_matrix\reports\qwen_3060_matrix_summary.md`
+- Evaluation shape:
+  - raw trial rows: `4 prompt captures x 2 layers x 3 trials = 24` rows per mode/bit in `qwen_3060_matrix_trials.csv`
+  - pairwise Wilcoxon-Holm tables therefore report `n_pairs = 24`
+  - per-prompt summary rows in `qwen_3060_matrix_summary.csv` report `n = 6` with `std`, `sem`, and `ci95_*`
+- Plot convention:
+  - the figures below are tracked README copies of the exported matrix plots
+  - points are means, and the plotted error bars come from `sem` in `qwen_3060_matrix_summary.csv`
+
+**Quality summary with error bars**
+
+![Qwen 3060 Matrix Quality Summary](_docs/assets/qwen_3060_matrix_attention.png)
+
+**Runtime / VRAM summary with error bars**
+
+![Qwen 3060 Matrix Runtime Summary](_docs/assets/qwen_3060_matrix_runtime.png)
+
+**4-bit headline mean +/- SD (from `qwen_3060_matrix_mean_pm_sd.csv`)**
+
+| Mode | Logit cosine | Hidden cosine | Memory ratio vs exact |
+| --- | --- | --- | --- |
+| `exact` | `1.000000 +/- 0.000000` | `1.000000 +/- 0.000000` | `1.000000 +/- 0.000000` |
+| `key_only_random` | `0.997396 +/- 0.006379` | `1.002604 +/- 0.004034` | `0.628906 +/- 0.000000` |
+| `full_kv` | `0.997396 +/- 0.006379` | `0.994792 +/- 0.003189` | `0.255859 +/- 0.000000` |
+| `asym_q8_turbo4` | `1.001302 +/- 0.005881` | `0.994141 +/- 0.004784` | `0.378906 +/- 0.000000` |
+| `asym_q8_turbo3` | `0.996745 +/- 0.002941` | `0.981771 +/- 0.004731` | `0.347656 +/- 0.000000` |
+| `multiscreen_relevance` | `1.002604 +/- 0.006379` | `1.000000 +/- 0.000000` | `0.660156 +/- 0.000000` |
+| `key_only_block_so8_triality_vector` | `1.000000 +/- 0.000000` | `0.999349 +/- 0.001595` | `0.628906 +/- 0.000000` |
+
+**Selected 24-row summary statistics from `qwen_3060_matrix_trials.csv`**
+
+| Mode / bit | `n` | Hidden cosine SEM | Hidden cosine 95% CI | Memory ratio vs exact |
+| --- | ---: | ---: | --- | ---: |
+| `multiscreen_relevance @ 4-bit` | `24` | `0.000879` | `[0.998995, 1.002632]` | `0.651139 +/- 0.009238` |
+| `key_only_block_so8_triality_vector @ 4-bit` | `24` | `0.000900` | `[0.998788, 1.002514]` | `0.628906 +/- 0.000000` |
+| `asym_q8_turbo4 @ 4-bit` | `24` | `0.003050` | `[0.982459, 0.995080]` | `0.378906 +/- 0.000000` |
+| `full_kv @ 3-bit` | `24` | `0.000803` | `[0.980109, 0.983432]` | `0.193359 +/- 0.000000` |
+
+**How to read the reduced real slice**
+
+- `multiscreen_relevance` is the best logit-side 4-bit row in the exported `mean +/- SD` table: `1.002604 +/- 0.006379` logit cosine with `1.000000 +/- 0.000000` hidden cosine, at a higher memory ratio than the K-only rows.
+- `key_only_block_so8_triality_vector` stays on the same K-only memory band as `key_only_random` at 4-bit (`0.628906`) while tightening hidden-state dispersion to `0.999349 +/- 0.001595`, which is the most stable hidden-side K-only row in this reduced slice.
+- `asym_q8_turbo4` remains the aggressive memory-saving baseline worth watching: `0.378906` memory ratio, `1.001302 +/- 0.005881` logit cosine, but a clearly weaker hidden cosine at `0.994141 +/- 0.004784`.
+- The reduced slice still shows `full_kv` as the memory floor, but the low-bit hidden-state penalty is material; at 3-bit the pairwise Wilcoxon-Holm table reports `delta = -0.018229` hidden cosine vs exact with `p_holm = 5.869920418014882e-05`.
+- At 4-bit, `asym_q8_turbo4` is **not** significantly different from exact on logit cosine in the Wilcoxon-Holm table (`p_holm = 0.6859136620657271`), but **is** significantly lower on hidden cosine (`p_holm = 0.0002985592932016`).
+- The reduced slice produces degenerate Friedman rows (`nan`, `p = 1.0`) because the pooled blocks are too tied / small for a useful omnibus test here; the pairwise Wilcoxon-Holm rows carry the interpretable signal.
 
 ### 4. Export the 12 GB matrix report bundle
 
@@ -243,6 +286,7 @@ uv run python scripts\export_report.py --matrix-dir artifacts\qwen_3060_matrix
 Exported report outputs land under:
 - `artifacts\qwen_3060_matrix\plots\`
 - `artifacts\qwen_3060_matrix\reports\qwen_3060_matrix_summary.md`
+- README publication copies of the PNGs in this repo live under `_docs\assets\`
 
 ### 5. Verify the vendored runtime consumption path
 
