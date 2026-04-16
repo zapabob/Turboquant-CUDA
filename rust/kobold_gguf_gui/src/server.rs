@@ -50,9 +50,9 @@ fn reqwest_to_axum(res: reqwest::Response) -> Response {
             headers.insert(name, v.clone());
         }
     }
-    let stream = res.bytes_stream().map(|r| {
-        r.map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "upstream stream"))
-    });
+    let stream = res
+        .bytes_stream()
+        .map(|r| r.map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "upstream stream")));
     let body = Body::from_stream(stream);
     let mut res = Response::new(body);
     *res.status_mut() = status;
@@ -232,10 +232,7 @@ async fn tokencount(State(state): State<Arc<ProxyState>>, body: Bytes) -> impl I
         Ok(v) => v,
         Err(_) => return (StatusCode::BAD_GATEWAY, Json(json!({"value": -1}))).into_response(),
     };
-    let ids = out
-        .get("tokens")
-        .cloned()
-        .unwrap_or(json!([]));
+    let ids = out.get("tokens").cloned().unwrap_or(json!([]));
     let n = ids.as_array().map(|a| a.len()).unwrap_or(0);
     (StatusCode::OK, Json(json!({"value": n, "ids": ids}))).into_response()
 }
@@ -279,7 +276,11 @@ async fn detokenize(State(state): State<Arc<ProxyState>>, body: Bytes) -> impl I
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string();
-    (StatusCode::OK, Json(json!({"result": text, "success": true}))).into_response()
+    (
+        StatusCode::OK,
+        Json(json!({"result": text, "success": true})),
+    )
+        .into_response()
 }
 
 fn service_unavailable(msg: &'static str) -> impl IntoResponse {

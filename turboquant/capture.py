@@ -46,6 +46,10 @@ class CaptureMetadata:
     model_source: str | None = None
     prompt_label: str | None = None
     capture_id: str | None = None
+    model_preset: str | None = None
+    lane_name: str | None = None
+    seed: int | None = None
+    quantization_config: dict[str, Any] | None = None
 
 
 DEFAULT_PROMPT_PANEL: tuple[PromptCaptureSpec, ...] = (
@@ -136,6 +140,11 @@ def capture_slug(label: str, prompt_hash: str) -> str:
 
 def load_capture_metadata(path: Path) -> CaptureMetadata:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    quantization_config = payload.get("quantization_config")
+    if quantization_config is not None:
+        from turboquant.schema import validate_capture_quantization_config
+
+        validate_capture_quantization_config(quantization_config)
     layers = [LayerCaptureRecord(**record) for record in payload.get("layers", [])]
     payload["layers"] = layers
     return CaptureMetadata(**payload)

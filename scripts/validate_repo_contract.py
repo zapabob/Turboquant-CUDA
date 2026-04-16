@@ -11,6 +11,7 @@ from turboquant.repo_contract import (
     validate_documentation,
     validate_gitmodules,
     validate_llama_cpp_checkout,
+    validate_qwen_runtime_contract,
     validate_rust_build_script,
     validate_vendor_remote,
 )
@@ -39,6 +40,7 @@ def main() -> int:
     errors.extend(validate_gitmodules(contract))
     errors.extend(validate_vendor_remote(contract))
     errors.extend(validate_llama_cpp_checkout(contract, llama_cpp_dir=args.llama_cpp_dir))
+    errors.extend(validate_qwen_runtime_contract(contract, llama_cpp_dir=args.llama_cpp_dir))
     errors.extend(validate_rust_build_script(contract))
     errors.extend(validate_documentation(contract))
 

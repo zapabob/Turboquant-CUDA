@@ -325,11 +325,14 @@ impl GgufFile {
 
     /// Get a bool metadata value, trying both `general.X` and `X` keys.
     pub fn get_bool(&self, key: &str) -> Option<bool> {
-        self.metadata.get(key).and_then(|v| v.as_bool()).or_else(|| {
-            self.metadata
-                .get(&format!("general.{key}"))
-                .and_then(|v| v.as_bool())
-        })
+        self.metadata
+            .get(key)
+            .and_then(|v| v.as_bool())
+            .or_else(|| {
+                self.metadata
+                    .get(&format!("general.{key}"))
+                    .and_then(|v| v.as_bool())
+            })
     }
 
     /// Get a float metadata value, trying both `general.X` and `X` keys.

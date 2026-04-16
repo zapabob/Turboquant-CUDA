@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, cast
 
 import pandas as pd
+from scipy import stats
 import torch
 
 from turboquant.allocation import ChannelBitAllocation
@@ -43,6 +44,25 @@ METRIC_COLUMNS = [
     "decode_seconds",
     "peak_vram_mb",
 ]
+
+QWEN_3060_MATRIX_MODES = (
+    "exact",
+    "key_only_random",
+    "full_kv",
+    "asym_q8_turbo4",
+    "asym_q8_turbo3",
+    "multiscreen_relevance",
+    "key_only_block_so8_triality_vector",
+)
+
+QWEN_3060_STAT_METRICS = (
+    "logit_cosine_similarity",
+    "next_logit_kl",
+    "hidden_cosine_similarity",
+    "memory_ratio_vs_exact",
+)
+
+QWEN_3060_PAIRWISE_BASELINES = ("exact", "asym_q8_turbo4")
 
 
 def dtype_name(dtype: torch.dtype) -> str:
@@ -269,6 +289,41 @@ class CapturedLayerBundle:
     values: torch.Tensor
 
 
+@dataclass(slots=True)
+class Q8ProxyBatch:
+    """Simple per-vector symmetric int8 proxy used for the 3060 asymmetric offline lane."""
+
+    indices: torch.Tensor
+    scale: torch.Tensor
+    shape: tuple[int, ...]
+
+    def total_bits(self) -> int:
+        return int(self.indices.numel() * 8) + int(self.scale.numel() * self.scale.element_size() * 8)
+
+
+def _q8_proxy_quantize(x: torch.Tensor) -> Q8ProxyBatch:
+    """Quantize ``x`` with a per-vector symmetric int8 proxy.
+
+    Shapes:
+    - ``x``: ``[..., dim]``
+    - ``scale``: ``[..., 1]``
+    - ``indices``: ``[..., dim]`` packed as int8
+    """
+
+    if not x.is_floating_point():
+        raise ValueError("q8 proxy expects a floating-point tensor")
+    if x.shape[-1] <= 0:
+        raise ValueError("q8 proxy requires a positive head dimension")
+    amax = x.abs().amax(dim=-1, keepdim=True)
+    scale = torch.where(amax > 0, amax / 127.0, torch.ones_like(amax))
+    indices = torch.clamp(torch.round(x / scale), -127, 127).to(torch.int8)
+    return Q8ProxyBatch(indices=indices, scale=scale, shape=tuple(x.shape))
+
+
+def _q8_proxy_dequantize(encoded: Q8ProxyBatch) -> torch.Tensor:
+    return encoded.indices.to(dtype=encoded.scale.dtype) * encoded.scale
+
+
 def _evaluate_mode(
     *,
     dataset: str,
@@ -409,6 +464,118 @@ def _evaluate_mode(
     if mode_metadata is not None:
         row.update(mode_metadata)
     return row
+
+
+def evaluate_asymmetric_q8_value_attention_row(
+    *,
+    dataset: str,
+    trial: int,
+    layer_idx: int,
+    mode: str,
+    keys: torch.Tensor,
+    values: torch.Tensor,
+    queries: torch.Tensor | None = None,
+    bit_setting: str | None = None,
+    bits: float | None = None,
+    eval_device: str | torch.device | None = None,
+) -> dict[str, float | int | str]:
+    """Evaluate the 3060 V-first asymmetric proxy modes.
+
+    ``asym_q8_turbo4`` and ``asym_q8_turbo3`` use:
+    - K side: per-vector symmetric int8 proxy to approximate a q8 cache path
+    - V side: Stage-1 TurboQuant reconstruction with learned block-SO(8) rotation
+    """
+
+    if mode not in {"asym_q8_turbo4", "asym_q8_turbo3"}:
+        raise ValueError(f"Unsupported asymmetric mode: {mode!r}")
+
+    target_device = torch.device(eval_device) if eval_device is not None else keys.device
+    if keys.device != target_device:
+        keys = keys.to(target_device)
+    if values.device != target_device:
+        values = values.to(target_device)
+
+    if queries is None:
+        query_seed = _seed_value(trial, layer_idx, 503 if mode == "asym_q8_turbo4" else 509)
+        queries = select_queries(keys, seed=query_seed)
+
+    value_bits = 4 if mode == "asym_q8_turbo4" else 3
+    comparison_bits = float(value_bits) if bits is None else float(bits)
+    comparison_bit_setting = f"{value_bits:g}" if bit_setting is None else bit_setting
+    rotation_seed = _seed_value(trial, layer_idx, 401 if value_bits == 4 else 307)
+
+    device = keys.device
+    exact_logits = torch.einsum("...qd,...sd->...qs", queries, keys)
+    exact_hidden = scaled_attention_output(exact_logits, values, head_dim=keys.shape[-1])
+    exact_memory_bits = raw_storage_bits(keys) + raw_storage_bits(values)
+
+    q8_keys = _q8_proxy_quantize(keys)
+    value_quantizer = TurboQuantMSE(
+        TurboQuantMSEConfig(
+            dim=values.shape[-1],
+            bits=value_bits,
+            device=str(device),
+            dtype=dtype_name(values.dtype),
+            rotation_policy="block_so8_learned",
+            rotation_seed=rotation_seed,
+        )
+    )
+    value_quantizer.fit_rotation(values, queries=queries)
+
+    _sync_if_cuda(device)
+    _reset_peak_if_cuda(device)
+    started = time.perf_counter()
+    decoded_keys = _q8_proxy_dequantize(q8_keys)
+    encoded_values = value_quantizer.quantize(values)
+    decoded_values = value_quantizer.dequantize(encoded_values)
+    estimated_logits = torch.einsum("...qd,...sd->...qs", queries, decoded_keys)
+    _sync_if_cuda(device)
+    prefill_seconds = time.perf_counter() - started
+
+    _sync_if_cuda(device)
+    decode_started = time.perf_counter()
+    last_query = queries[..., -1:, :]
+    decode_logits = torch.einsum("...qd,...sd->...qs", last_query, decoded_keys)
+    _ = scaled_attention_output(decode_logits, decoded_values, head_dim=keys.shape[-1])
+    _sync_if_cuda(device)
+    decode_seconds = time.perf_counter() - decode_started
+
+    hidden = scaled_attention_output(estimated_logits, decoded_values, head_dim=keys.shape[-1])
+    logit_metrics = summarize_attention_scores(exact_logits, estimated_logits)
+    hidden_metrics = summarize_attention_scores(exact_hidden, hidden)
+
+    memory_bits = float(q8_keys.total_bits() + encoded_values.total_bits())
+    return {
+        "dataset": dataset,
+        "trial": trial,
+        "layer": layer_idx,
+        "mode": mode,
+        "bit_setting": comparison_bit_setting,
+        "bits": comparison_bits,
+        "mode_reference_bits": float(value_bits),
+        "logit_cosine_similarity": logit_metrics["cosine_similarity"],
+        "logit_mae": logit_metrics["mae"],
+        "logit_mse": logit_metrics["mse"],
+        "next_logit_kl": logit_metrics["kl_divergence"],
+        "logit_spearman": logit_metrics["spearman"],
+        "logit_top1_match": logit_metrics["top1_match"],
+        "logit_top5_match": logit_metrics["top5_match"],
+        "logit_top5_overlap": logit_metrics["top5_overlap"],
+        "hidden_cosine_similarity": hidden_metrics["cosine_similarity"],
+        "hidden_mae": hidden_metrics["mae"],
+        "hidden_mse": hidden_metrics["mse"],
+        "attention_output_relative_error": hidden_metrics["relative_fro_error"],
+        "memory_bits": memory_bits,
+        "memory_ratio_vs_exact": memory_bits / float(exact_memory_bits),
+        "prefill_seconds": prefill_seconds,
+        "decode_seconds": decode_seconds,
+        "peak_vram_mb": _peak_vram_mb(device),
+        "key_mode": "q8_proxy",
+        "value_mode": mode,
+        "value_rotation_policy": "block_so8_learned",
+        "rotation_seed": rotation_seed,
+        "qjl_seed": 0,
+    }
 
 
 def evaluate_multiscreen_relevance_attention_row(
@@ -909,6 +1076,251 @@ def compose_sensitive_layer_policy_rows(
             row[metric] = float(combined[metric].mean())
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def _bit_setting_sort_key(value: str) -> float:
+    try:
+        return float(value)
+    except ValueError:
+        return float("inf")
+
+
+def _paired_columns(frame: pd.DataFrame) -> list[str]:
+    columns = ["dataset", "trial", "layer"]
+    for optional in ("capture_id", "prompt_hash", "prompt_label", "lane_name"):
+        if optional in frame.columns:
+            columns.append(optional)
+    return columns
+
+
+def _holm_bonferroni(p_values: list[float]) -> list[float]:
+    indexed = sorted(enumerate(p_values), key=lambda item: item[1])
+    adjusted = [0.0] * len(p_values)
+    running_max = 0.0
+    total = len(p_values)
+    for rank, (original_idx, p_value) in enumerate(indexed):
+        candidate = (total - rank) * p_value
+        running_max = max(running_max, candidate)
+        adjusted[original_idx] = min(running_max, 1.0)
+    return adjusted
+
+
+def compute_qwen_3060_multigroup_statistics(
+    trial_frame: pd.DataFrame,
+    *,
+    modes: tuple[str, ...] = QWEN_3060_MATRIX_MODES,
+    metrics: tuple[str, ...] = QWEN_3060_STAT_METRICS,
+    baseline_modes: tuple[str, ...] = QWEN_3060_PAIRWISE_BASELINES,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Compute Friedman and pairwise Wilcoxon-Holm statistics for the 3060 matrix."""
+
+    if trial_frame.empty:
+        raise ValueError("compute_qwen_3060_multigroup_statistics received an empty trial_frame")
+    required = {"mode", "bit_setting", "bits", *metrics}
+    missing = sorted(required.difference(trial_frame.columns))
+    if missing:
+        raise ValueError(f"trial_frame is missing required columns: {missing}")
+
+    pair_columns = _paired_columns(trial_frame)
+    bit_settings = sorted({str(value) for value in trial_frame["bit_setting"].unique()}, key=_bit_setting_sort_key)
+
+    friedman_rows: list[dict[str, float | int | str]] = []
+    pairwise_rows: list[dict[str, float | int | str | bool]] = []
+
+    for bit_setting in bit_settings:
+        subset = trial_frame.loc[trial_frame["bit_setting"].astype(str) == bit_setting]
+        for metric in metrics:
+            mode_to_values: dict[str, list[float]] = {mode: [] for mode in modes}
+            for _, group in subset.groupby(pair_columns, dropna=False, sort=True):
+                block_values: list[float] = []
+                skip_block = False
+                for mode in modes:
+                    mode_rows = group.loc[group["mode"] == mode]
+                    if len(mode_rows) != 1:
+                        skip_block = True
+                        break
+                    block_values.append(float(mode_rows.iloc[0][metric]))
+                if skip_block:
+                    continue
+                for mode, value in zip(modes, block_values, strict=True):
+                    mode_to_values[mode].append(value)
+
+            n_blocks = len(mode_to_values[modes[0]])
+            if n_blocks >= 2:
+                result = stats.friedmanchisquare(*(mode_to_values[mode] for mode in modes))
+                statistic = float(result.statistic)
+                p_value = float(result.pvalue)
+            else:
+                statistic = float("nan")
+                p_value = 1.0
+            friedman_rows.append(
+                {
+                    "metric": metric,
+                    "bit_setting": bit_setting,
+                    "test": "friedman",
+                    "n_blocks": n_blocks,
+                    "n_modes": len(modes),
+                    "statistic": statistic,
+                    "p_value": p_value,
+                    "modes": ",".join(modes),
+                }
+            )
+
+            for baseline_mode in baseline_modes:
+                raw_rows: list[dict[str, float | int | str | bool]] = []
+                for candidate_mode in modes:
+                    if candidate_mode == baseline_mode:
+                        continue
+                    paired = subset.loc[subset["mode"].isin((baseline_mode, candidate_mode))].copy()
+                    pivot = paired.pivot_table(
+                        index=pair_columns,
+                        columns="mode",
+                        values=metric,
+                        aggfunc="first",
+                    ).dropna()
+                    if len(pivot) < 3:
+                        continue
+                    baseline_values = pivot[baseline_mode].astype(float)
+                    candidate_values = pivot[candidate_mode].astype(float)
+                    result = stats.wilcoxon(
+                        baseline_values,
+                        candidate_values,
+                        alternative="two-sided",
+                        zero_method="wilcox",
+                        correction=False,
+                        method="auto",
+                    )
+                    raw_rows.append(
+                        {
+                            "metric": metric,
+                            "bit_setting": bit_setting,
+                            "baseline_mode": baseline_mode,
+                            "candidate_mode": candidate_mode,
+                            "test": "wilcoxon_signed_rank",
+                            "n_pairs": int(len(pivot)),
+                            "statistic": float(result.statistic),
+                            "p_value": float(result.pvalue),
+                            "baseline_mean": float(baseline_values.mean()),
+                            "candidate_mean": float(candidate_values.mean()),
+                            "delta_candidate_minus_baseline": float(candidate_values.mean() - baseline_values.mean()),
+                        }
+                    )
+                if raw_rows:
+                    adjusted = _holm_bonferroni([float(row["p_value"]) for row in raw_rows])
+                    for row, adj_p in zip(raw_rows, adjusted, strict=True):
+                        row["p_value_holm"] = adj_p
+                        row["significant_0_05"] = adj_p < 0.05
+                    pairwise_rows.extend(raw_rows)
+
+    return pd.DataFrame(friedman_rows), pd.DataFrame(pairwise_rows)
+
+
+def evaluate_qwen_3060_matrix_rows(
+    *,
+    bundle: CapturedLayerBundle,
+    trial: int,
+    bit_grid: list[float],
+    eval_device: str | torch.device = "cpu",
+    triality_artifacts: dict | None = None,
+    multiscreen_allocation: ChannelBitAllocation | None = None,
+    rotation_dir: Path | None = None,
+) -> list[dict[str, float | int | str]]:
+    """Compose the 12GB-only Qwen comparison matrix for one captured layer bundle."""
+
+    from turboquant.research_extension.captured_kv_modes import eval_captured_key_mode_row
+
+    rows: list[dict[str, float | int | str]] = []
+    target_device = torch.device(eval_device)
+    keys = bundle.keys.to(target_device)
+    values = bundle.values.to(target_device)
+    dataset = f"qwen3060:{bundle.metadata.prompt_label or 'capture'}"
+
+    for bit_value in bit_grid:
+        bit_setting = f"{bit_value:g}"
+        grid_rows = evaluate_layer_grid(
+            dataset=dataset,
+            keys=keys,
+            values=values,
+            trial=trial,
+            layer_idx=bundle.layer_idx,
+            bit_grid=[bit_value],
+            eval_device=target_device,
+        )
+        for row in grid_rows:
+            if str(row["mode"]) not in {"exact", "key_only_random", "full_kv"}:
+                continue
+            row["bit_setting"] = bit_setting
+            row["bits"] = float(bit_value)
+            row["mode_reference_bits"] = float(bit_value) if row["mode"] != "exact" else float("nan")
+            rows.append(row)
+
+        rows.append(
+            evaluate_asymmetric_q8_value_attention_row(
+                dataset=dataset,
+                trial=trial,
+                layer_idx=bundle.layer_idx,
+                mode="asym_q8_turbo4",
+                keys=keys,
+                values=values,
+                bit_setting=bit_setting,
+                bits=bit_value,
+                eval_device=target_device,
+            )
+        )
+        rows.append(
+            evaluate_asymmetric_q8_value_attention_row(
+                dataset=dataset,
+                trial=trial,
+                layer_idx=bundle.layer_idx,
+                mode="asym_q8_turbo3",
+                keys=keys,
+                values=values,
+                bit_setting=bit_setting,
+                bits=bit_value,
+                eval_device=target_device,
+            )
+        )
+
+        if multiscreen_allocation is not None:
+            rows.append(
+                eval_captured_key_mode_row(
+                    mode="multiscreen_relevance",
+                    bundle=CapturedLayerBundle(
+                        metadata=bundle.metadata,
+                        capture_dir=bundle.capture_dir,
+                        layer_idx=bundle.layer_idx,
+                        keys=keys,
+                        values=values,
+                    ),
+                    trial=trial,
+                    bit_value=float(bit_value),
+                    eval_device=target_device,
+                    rotation_dir=None,
+                    triality_artifacts=None,
+                    ms_alloc=multiscreen_allocation,
+                )
+            )
+
+        if triality_artifacts is not None and rotation_dir is not None:
+            rows.append(
+                eval_captured_key_mode_row(
+                    mode="key_only_block_so8_triality_vector",
+                    bundle=CapturedLayerBundle(
+                        metadata=bundle.metadata,
+                        capture_dir=bundle.capture_dir,
+                        layer_idx=bundle.layer_idx,
+                        keys=keys,
+                        values=values,
+                    ),
+                    trial=trial,
+                    bit_value=float(bit_value),
+                    eval_device=target_device,
+                    rotation_dir=rotation_dir,
+                    triality_artifacts=triality_artifacts,
+                    ms_alloc=None,
+                )
+            )
+    return rows
 
 
 def evaluate_value_protection_grid(

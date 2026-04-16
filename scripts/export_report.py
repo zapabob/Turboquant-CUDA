@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import sys
 
@@ -13,6 +14,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from turboquant.io_utils import ensure_dir
+from turboquant.reporting import (
+    QWEN_3060_PLOT_MODES,
+    QWEN_3060_QUALITY_METRICS,
+    build_qwen_3060_mean_pm_sd_table,
+    write_qwen_3060_markdown_summary,
+)
 
 
 ARTIFACT_ROOT = Path("artifacts")
@@ -34,6 +41,16 @@ PLOT_MODES = [
     "protected_v_lowrank",
     "full_kv",
 ]
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Render TurboQuant report artifacts.")
+    parser.add_argument(
+        "--matrix-dir",
+        default=None,
+        help="Optional qwen_3060_matrix artifact root. When set, export the 12GB Qwen matrix report from that directory.",
+    )
+    return parser.parse_args()
 
 
 def _metric_label(metric: str) -> str:
@@ -58,6 +75,7 @@ def _mode_label(mode: str) -> str:
         "key_only_random": "Key-Only (Random)",
         "key_only_block_so8_static": "Key-Only (SO8 Static)",
         "key_only_block_so8_learned": "Key-Only (SO8 Learned)",
+        "key_only_block_so8_triality_vector": "Triality Vector",
         "v_mse_random": "V-MSE (Random)",
         "v_mse_block_so8": "V-MSE (SO8)",
         "v_prod_random": "V-Prod (Random)",
@@ -65,6 +83,9 @@ def _mode_label(mode: str) -> str:
         "protected_v": "Protected-V",
         "protected_v_lowrank": "Protected-V + LR",
         "full_kv": "Full-KV",
+        "asym_q8_turbo4": "Asym Q8/Turbo4",
+        "asym_q8_turbo3": "Asym Q8/Turbo3",
+        "multiscreen_relevance": "Multiscreen Relevance",
         "sensitive_layers_only_exact_v": "Sensitive Layers Exact-V",
     }.get(mode, mode)
 
@@ -176,6 +197,62 @@ def render_runtime_plotly(summary: pd.DataFrame, output_path: Path) -> None:
             )
     fig.update_layout(title="TurboQuant Runtime Trade-offs (Interactive)", height=500, width=1500)
     fig.write_html(str(output_path), include_plotlyjs="cdn")
+
+
+def render_qwen_3060_attention_matplotlib(summary: pd.DataFrame, output_path: Path) -> None:
+    metrics = QWEN_3060_QUALITY_METRICS
+    fig, axes = plt.subplots(1, len(metrics), figsize=(22, 5), constrained_layout=True)
+    for axis, metric in zip(axes, metrics, strict=True):
+        subset = summary.loc[
+            (summary["mode"].isin(QWEN_3060_PLOT_MODES)) & (summary["metric"] == metric)
+        ].sort_values(["mode", "bits"])
+        for mode in QWEN_3060_PLOT_MODES:
+            mode_frame = subset.loc[subset["mode"] == mode]
+            if mode_frame.empty:
+                continue
+            axis.errorbar(
+                mode_frame["bits"],
+                mode_frame["mean"],
+                yerr=mode_frame["sem"],
+                marker="o",
+                capsize=4,
+                label=_mode_label(mode),
+            )
+        axis.set_title(_metric_label(metric))
+        axis.set_xlabel("Comparison Bit Setting")
+        axis.grid(alpha=0.3)
+    axes[0].legend()
+    fig.suptitle("Qwen 3060 Matrix Quality Summary")
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+
+
+def render_qwen_3060_runtime_matplotlib(summary: pd.DataFrame, output_path: Path) -> None:
+    metrics = ["prefill_seconds", "decode_seconds", "peak_vram_mb"]
+    fig, axes = plt.subplots(1, len(metrics), figsize=(18, 5), constrained_layout=True)
+    for axis, metric in zip(axes, metrics, strict=True):
+        subset = summary.loc[
+            (summary["mode"].isin(QWEN_3060_PLOT_MODES)) & (summary["metric"] == metric)
+        ].sort_values(["mode", "bits"])
+        for mode in QWEN_3060_PLOT_MODES:
+            mode_frame = subset.loc[subset["mode"] == mode]
+            if mode_frame.empty:
+                continue
+            axis.errorbar(
+                mode_frame["bits"],
+                mode_frame["mean"],
+                yerr=mode_frame["sem"],
+                marker="o",
+                capsize=4,
+                label=_mode_label(mode),
+            )
+        axis.set_title(_metric_label(metric))
+        axis.set_xlabel("Comparison Bit Setting")
+        axis.grid(alpha=0.3)
+    axes[0].legend()
+    fig.suptitle("Qwen 3060 Matrix Runtime Summary")
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
 
 
 def render_synthetic_matplotlib(summary: pd.DataFrame, output_path: Path) -> None:
@@ -520,7 +597,38 @@ def render_markdown_summary(
     output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def export_qwen_3060_matrix_report(matrix_root: Path) -> int:
+    metrics_dir = matrix_root / "metrics"
+    plots_dir = ensure_dir(matrix_root / "plots")
+    reports_dir = ensure_dir(matrix_root / "reports")
+
+    summary_frame = pd.read_csv(metrics_dir / "qwen_3060_matrix_summary.csv")
+    mean_pm_sd = build_qwen_3060_mean_pm_sd_table(summary_frame)
+    friedman_frame = load_optional_csv(metrics_dir / "qwen_3060_matrix_friedman.csv")
+    pairwise_frame = load_optional_csv(metrics_dir / "qwen_3060_matrix_pairwise.csv")
+
+    render_qwen_3060_attention_matplotlib(summary_frame, plots_dir / "qwen_3060_matrix_attention.png")
+    render_qwen_3060_runtime_matplotlib(summary_frame, plots_dir / "qwen_3060_matrix_runtime.png")
+    write_qwen_3060_markdown_summary(
+        summary_frame=summary_frame,
+        mean_pm_sd_frame=mean_pm_sd,
+        friedman_frame=friedman_frame,
+        pairwise_frame=pairwise_frame,
+        output_path=reports_dir / "qwen_3060_matrix_summary.md",
+    )
+    print(summary_frame)
+    if friedman_frame is not None:
+        print(friedman_frame)
+    if pairwise_frame is not None:
+        print(pairwise_frame)
+    return 0
+
+
 def main() -> int:
+    args = parse_args()
+    if args.matrix_dir:
+        return export_qwen_3060_matrix_report(Path(args.matrix_dir))
+
     ensure_dir(PLOTS_DIR)
     ensure_dir(REPORTS_DIR)
 

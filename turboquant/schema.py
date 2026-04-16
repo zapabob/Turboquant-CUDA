@@ -18,6 +18,7 @@ PAPER_SCHEMA_KIND = "paper_baseline"
 RESEARCH_SCHEMA_KIND = "research_extension"
 SCHEMA_VERSION = 2
 ARTIFACT_METADATA_SCHEMA_VERSION = 1
+CAPTURE_QUANTIZATION_CONFIG_SCHEMA_VERSION = 1
 PAPER_MODE_NAMES = ("exact", "key_only_random", "full_kv")
 DEFAULT_SIGN_PACK_FORMAT = "int8_unpacked_binary"
 DEFAULT_BITWIDTH_PAYLOAD_DTYPE = "uint8"
@@ -231,6 +232,66 @@ def validate_research_turboquant_config(payload: dict[str, Any]) -> None:
         raise ValueError("research k_codec bits_total must be >= qjl_bits")
 
 
+def build_capture_quantization_config(
+    *,
+    weight_load: str,
+    requested_dtype: str,
+    trust_remote_code: bool,
+    max_length: int,
+    device_map: str = "auto",
+) -> dict[str, Any]:
+    """Build a reproducible capture-time quantization payload."""
+
+    payload = {
+        "schema_version": CAPTURE_QUANTIZATION_CONFIG_SCHEMA_VERSION,
+        "weight_load": weight_load,
+        "requested_dtype": requested_dtype,
+        "quantization_backend": "bitsandbytes" if weight_load in {"4bit", "8bit"} else "none",
+        "load_in_4bit": weight_load == "4bit",
+        "load_in_8bit": weight_load == "8bit",
+        "device_map": device_map,
+        "trust_remote_code": bool(trust_remote_code),
+        "max_length": int(max_length),
+    }
+    validate_capture_quantization_config(payload)
+    return payload
+
+
+def validate_capture_quantization_config(payload: dict[str, Any]) -> None:
+    """Validate capture-time quantization metadata."""
+
+    _require(
+        payload,
+        (
+            "schema_version",
+            "weight_load",
+            "requested_dtype",
+            "quantization_backend",
+            "load_in_4bit",
+            "load_in_8bit",
+            "device_map",
+            "trust_remote_code",
+            "max_length",
+        ),
+        context="capture quantization config",
+    )
+    weight_load = payload["weight_load"]
+    if weight_load not in {"4bit", "8bit", "none"}:
+        raise ValueError(f"Unsupported capture weight_load: {weight_load!r}")
+    if int(payload["max_length"]) <= 0:
+        raise ValueError(f"capture max_length must be positive, got {payload['max_length']!r}")
+    expected_backend = "bitsandbytes" if weight_load in {"4bit", "8bit"} else "none"
+    if payload["quantization_backend"] != expected_backend:
+        raise ValueError(
+            "capture quantization backend is inconsistent: "
+            f"expected {expected_backend!r} for weight_load={weight_load!r}"
+        )
+    if bool(payload["load_in_4bit"]) != (weight_load == "4bit"):
+        raise ValueError("capture quantization config has inconsistent load_in_4bit state")
+    if bool(payload["load_in_8bit"]) != (weight_load == "8bit"):
+        raise ValueError("capture quantization config has inconsistent load_in_8bit state")
+
+
 def build_turboquant_artifact_metadata(
     *,
     total_bits: float,
@@ -386,16 +447,19 @@ def write_turboquant_config(path: Path, payload: dict[str, Any]) -> None:
 
 __all__ = [
     "ARTIFACT_METADATA_SCHEMA_VERSION",
+    "CAPTURE_QUANTIZATION_CONFIG_SCHEMA_VERSION",
     "DEFAULT_BITWIDTH_PAYLOAD_DTYPE",
     "DEFAULT_SIGN_PACK_FORMAT",
     "PAPER_SCHEMA_KIND",
     "RESEARCH_SCHEMA_KIND",
     "SCHEMA_VERSION",
     "TURBOQUANT_REFERENCE_PAPER_URL",
+    "build_capture_quantization_config",
     "build_turboquant_artifact_metadata",
     "build_paper_turboquant_config",
     "build_research_turboquant_config",
     "read_turboquant_config",
+    "validate_capture_quantization_config",
     "validate_turboquant_artifact_metadata",
     "validate_paper_turboquant_config",
     "validate_research_turboquant_config",

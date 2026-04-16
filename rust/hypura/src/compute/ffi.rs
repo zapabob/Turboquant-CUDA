@@ -455,14 +455,14 @@ impl LlamaSampler {
 
         unsafe {
             let apply_id = |id: i32,
-                                added_top_k: &mut bool,
-                                added_top_a: &mut bool,
-                                added_top_p: &mut bool,
-                                added_tfs: &mut bool,
-                                added_typical: &mut bool,
-                                added_min_p: &mut bool,
-                                added_temp: &mut bool,
-                                added_pen: &mut bool| {
+                            added_top_k: &mut bool,
+                            added_top_a: &mut bool,
+                            added_top_p: &mut bool,
+                            added_tfs: &mut bool,
+                            added_typical: &mut bool,
+                            added_min_p: &mut bool,
+                            added_temp: &mut bool,
+                            added_pen: &mut bool| {
                 match id {
                     0 if !*added_top_k => {
                         hypura_sys::llama_sampler_chain_add(

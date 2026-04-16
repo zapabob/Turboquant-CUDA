@@ -38,7 +38,7 @@ impl TurboQuantCodec {
         std::fs::create_dir_all(&cachedir)?;
 
         let (rot_policy, triality) = parse_rotation_policy(rotation_policy);
-        
+
         Ok(TurboQuantCodec {
             python_path: vendor_path,
             config_path: config_path.map(PathBuf::from),
@@ -54,9 +54,13 @@ impl TurboQuantCodec {
     }
 
     pub fn compress_k(&self, layer: u32, head: u32, data: &[f32]) -> anyhow::Result<Vec<f32>> {
-        let input_file = self.cachedir.join(format!("k_{}_{}_{}.json", layer, head, data.len()));
-        let output_file = self.cachedir.join(format!("k_out_{}_{}_{}.json", layer, head, data.len()));
-        
+        let input_file = self
+            .cachedir
+            .join(format!("k_{}_{}_{}.json", layer, head, data.len()));
+        let output_file =
+            self.cachedir
+                .join(format!("k_out_{}_{}_{}.json", layer, head, data.len()));
+
         let config = serde_json::json!({
             "layer": layer,
             "head": head,
@@ -67,7 +71,8 @@ impl TurboQuantCodec {
         });
         std::fs::write(&input_file, serde_json::to_string(&config)?)?;
 
-        let script = format!(r#"
+        let script = format!(
+            r#"
 import sys
 import json
 sys.path.insert(0, 'vendor/turboquant-cuda')
@@ -108,7 +113,8 @@ result = rotated.cpu().tolist()
 
 with open(sys.argv[2], 'w') as f:
     json.dump(result, f)
-"#);
+"#
+        );
 
         let script_file = self.cachedir.join("compress_k.py");
         std::fs::write(&script_file, script)?;
@@ -134,9 +140,13 @@ with open(sys.argv[2], 'w') as f:
     }
 
     pub fn compress_v(&self, layer: u32, head: u32, data: &[f32]) -> anyhow::Result<Vec<f32>> {
-        let input_file = self.cachedir.join(format!("v_{}_{}_{}.json", layer, head, data.len()));
-        let output_file = self.cachedir.join(format!("v_out_{}_{}_{}.json", layer, head, data.len()));
-        
+        let input_file = self
+            .cachedir
+            .join(format!("v_{}_{}_{}.json", layer, head, data.len()));
+        let output_file =
+            self.cachedir
+                .join(format!("v_out_{}_{}_{}.json", layer, head, data.len()));
+
         let config = serde_json::json!({
             "layer": layer,
             "head": head,
@@ -185,10 +195,19 @@ with open(sys.argv[2], 'w') as f:
         Ok(result_json)
     }
 
-    pub fn score_k(&self, layer: u32, head: u32, query: &[f32], token_start: u32, token_end: u32) -> anyhow::Result<Vec<f32>> {
+    pub fn score_k(
+        &self,
+        layer: u32,
+        head: u32,
+        query: &[f32],
+        token_start: u32,
+        token_end: u32,
+    ) -> anyhow::Result<Vec<f32>> {
         let input_file = self.cachedir.join(format!("score_{}_{}.json", layer, head));
-        let output_file = self.cachedir.join(format!("score_out_{}_{}.json", layer, head));
-        
+        let output_file = self
+            .cachedir
+            .join(format!("score_out_{}_{}.json", layer, head));
+
         let config = serde_json::json!({
             "layer": layer,
             "head": head,
@@ -237,10 +256,20 @@ with open(sys.argv[2], 'w') as f:
         Ok(result_json)
     }
 
-    pub fn read_v(&self, layer: u32, head: u32, token_start: u32, token_end: u32) -> anyhow::Result<Vec<f32>> {
-        let input_file = self.cachedir.join(format!("read_v_{}_{}.json", layer, head));
-        let output_file = self.cachedir.join(format!("read_v_out_{}_{}.json", layer, head));
-        
+    pub fn read_v(
+        &self,
+        layer: u32,
+        head: u32,
+        token_start: u32,
+        token_end: u32,
+    ) -> anyhow::Result<Vec<f32>> {
+        let input_file = self
+            .cachedir
+            .join(format!("read_v_{}_{}.json", layer, head));
+        let output_file = self
+            .cachedir
+            .join(format!("read_v_out_{}_{}.json", layer, head));
+
         let config = serde_json::json!({
             "layer": layer,
             "head": head,
@@ -293,8 +322,14 @@ fn parse_rotation_policy(policy: Option<&str>) -> (String, Option<String>) {
         Some("block_so8_learned") => ("block_so8_learned".to_string(), None),
         Some("block_so8_static") => ("block_so8_static".to_string(), None),
         Some("triality_vector") => ("block_so8_static".to_string(), Some("vector".to_string())),
-        Some("triality_spinor_plus") => ("block_so8_static".to_string(), Some("spinor_plus_proxy".to_string())),
-        Some("triality_spinor_minus") => ("block_so8_static".to_string(), Some("spinor_minus_proxy".to_string())),
+        Some("triality_spinor_plus") => (
+            "block_so8_static".to_string(),
+            Some("spinor_plus_proxy".to_string()),
+        ),
+        Some("triality_spinor_minus") => (
+            "block_so8_static".to_string(),
+            Some("spinor_minus_proxy".to_string()),
+        ),
         _ => ("random_haar".to_string(), None),
     }
 }

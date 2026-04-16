@@ -20,12 +20,29 @@ required_header_markers = [
   "llama_turboquant_runtime_config",
   "llama_turboquant_artifact",
   "llama_turboquant_save_artifact",
+  "asym_q8_turbo4",
+  "llama_turboquant_runtime_allows_k",
 ]
 required_source = "src/llama-turboquant.cpp"
 required_source_markers = [
   "TQCUDA",
   "llama_turboquant_runtime_from_env",
   "llama_turboquant_load_artifact",
+  "LLAMA_TURBOQUANT_MODE",
+  "asym_q8_turbo3",
+  "triality_vector",
+]
+
+[qwen_runtime]
+kv_cache_source = "src/llama-kv-cache.cpp"
+kv_cache_markers = [
+  "llama_turboquant_runtime_allows_k",
+  "llama_turboquant_runtime_allows_v",
+  "!hparams.is_recurrent(il)",
+]
+qwen_model_source = "src/models/qwen35.cpp"
+qwen_model_markers = [
+  "TurboQuant runtime support remains scoped to the full-attention path",
 ]
 
 [docs]
