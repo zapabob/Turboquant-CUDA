@@ -12,6 +12,7 @@ __pycache__/
 *.egg-info/
 .cache/
 .codex/
+.worktrees/
 artifacts/kv/
 artifacts/kv_rtx3060_fresh/
 artifacts/metrics_smoke/
