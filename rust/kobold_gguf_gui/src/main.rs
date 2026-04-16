@@ -88,7 +88,8 @@ impl GuiApp {
     fn start_backend(&mut self) -> anyhow::Result<()> {
         self.stop_all();
 
-        if self.settings.gguf_path.trim().is_empty() || self.settings.llama_server_exe.trim().is_empty()
+        if self.settings.gguf_path.trim().is_empty()
+            || self.settings.llama_server_exe.trim().is_empty()
         {
             anyhow::bail!("Set GGUF path and llama-server executable.");
         }
@@ -116,7 +117,9 @@ impl GuiApp {
         ]);
 
         self.append_log(format!("Spawning: {:?}", cmd));
-        let child = cmd.spawn().map_err(|e| anyhow::anyhow!("spawn llama-server: {e}"))?;
+        let child = cmd
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("spawn llama-server: {e}"))?;
         self.child = Some(child);
 
         Self::wait_llama_health(self.settings.backend_port)?;

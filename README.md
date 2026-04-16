@@ -4,7 +4,10 @@ Paper-faithful PyTorch implementation of the TurboQuant KV-cache compression alg
 Qwen3.5-9B captured KV replay, and K/V research extensions including triality-proxy SO(8) learned rotations.
 **Windows + `uv` + Python 3.12.x**; CUDA via `uv sync --extra cu128`.
 
+- **Current mainline**: RTX 3060 desktop 12 GB, Qwen3.5-9B text-only captured KV, and the fixed 7-mode comparison matrix driven by `scripts\validate_qwen_3060_matrix.py`.
+
 - **What**: Reproduces TurboQuant Stage 1 (sphere Lloyd-Max) + Stage 2 (inner-product estimator + QJL sketch) faithful to the paper, then layers research extensions on top.
+- **Integration project**: This repository, [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp), and [zapabob/Hypura](https://github.com/zapabob/Hypura) are being developed together as a TurboQuant quantization integration project spanning offline artifact generation, GGUF/runtime consumption, and deployment-time serving.
 - **Production K path**: Multiscreen relevance → per-channel mixed-bit allocation → triality-proxy SO(8) (vector proxy view) + TurboQuant Stage 1+2 on captured KV.
 - **Validation order**: synthetic → attention → captured (lock offline correctness first).
 
@@ -159,50 +162,99 @@ Production bundle (env check + pytest):
 
 ---
 
-## Quick Start (Offline Validation)
+## Quick Start (12GB Mainline)
 
 ```powershell
 Set-Location H:\path\to\hub_Qwen3.5-9B-SOT
 uv run python scripts\env_check.py
-uv run python -m pytest -q
-uv run python scripts\paper_validate_synthetic.py --trials 8
-uv run python scripts\paper_validate_attention.py --trials 8 --synthetic-layers 4
-uv run python scripts\research_validate_v_codecs.py --query-source synthetic --trials 3
-uv run python scripts\research_value_sensitivity.py --trials 3 --synthetic-layers 4
+uv run python -m pytest tests\test_reporting.py tests\test_repo_contract.py tests\test_qwen_3060_matrix.py tests\test_attention_metrics.py tests\test_turboquant_prod.py -q
+uv run python scripts\validate_repo_contract.py
 ```
 
 ---
 
-## Production Flow
+## RTX 3060 12GB Matrix Flow
 
 ### 1. Qwen KV Capture
 
-- `--weight-load none`: full bf16 weights, no BitsAndBytes; `from_pretrained` uses `device_map="auto"` (~18 GB VRAM for 9B)
-- `--weight-load 4bit` / `8bit`: BitsAndBytesConfig + `device_map="auto"` (12 GB default path)
+- The 12 GB mainline capture root is `artifacts\kv_rtx3060_qwen9b`.
+- Reuse that artifact root if it already contains normalized capture manifests.
+- The recommended capture preset is `qwen35_9b_12gb`.
 
 ```powershell
-# 12 GB GPU (4-bit weights, recommended default)
 uv run python scripts\capture_qwen_kv.py `
+  --model-preset qwen35_9b_12gb `
   --weight-load 4bit --dtype bfloat16 --trust-remote-code `
   --model-id "H:\Qwen3.5-9B-official-hf" `
-  --output-dir artifacts\kv_4bit --max-length 64
-
-# Full bf16 (~18 GB+ VRAM)
-uv run python scripts\capture_qwen_kv.py `
-  --weight-load none --dtype bfloat16 --trust-remote-code `
-  --model-id "H:\Qwen3.5-9B-official-hf" `
-  --output-dir artifacts\kv_full_bf16 --max-length 96
+  --output-dir artifacts\kv_rtx3060_qwen9b --max-length 64
 ```
 
 Outputs: `artifacts\<kv-dir>\<capture_id>\capture_manifest.json` and per-layer `layer_*_{key,value}.pt`.
 
-### 2. Paper Baseline on Captured KV
+### 2. Optional paper baseline reference
 
 ```powershell
-uv run python scripts\paper_validate_captured_qwen.py --kv-dir artifacts\kv_4bit
+uv run python scripts\paper_validate_captured_qwen.py --kv-dir artifacts\kv_rtx3060_qwen9b
 ```
 
-### 3. Triality Full Pipeline (train → eval)
+### 3. Run the reduced real 12 GB matrix
+
+This is the current mainline comparison:
+- `exact`
+- `key_only_random`
+- `full_kv`
+- `asym_q8_turbo4`
+- `asym_q8_turbo3`
+- `multiscreen_relevance`
+- `key_only_block_so8_triality_vector`
+
+```powershell
+uv run python scripts\validate_qwen_3060_matrix.py `
+  --kv-dir artifacts\kv_rtx3060_qwen9b `
+  --rotation-dir artifacts\research_extension\triality_full_train_prod_bf16\rotations `
+  --eval-device cuda `
+  --bits 3,3.5,4 `
+  --trials 3 `
+  --max-layers 2 `
+  --skip-plots `
+  --output-dir artifacts\qwen_3060_matrix
+```
+
+Primary outputs:
+- `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_trials.csv`
+- `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_summary.csv`
+- `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_mean_pm_sd.csv`
+- `artifacts\qwen_3060_matrix\qwen_3060_matrix_report.md`
+
+### 3b. Observed reduced real outcome
+- Source bundle: `artifacts\qwen_3060_matrix\reports\qwen_3060_matrix_summary.md`
+- Evaluation shape: 4 prompt captures x 2 layers x 3 trials = 24 paired rows per mode/bit in the Wilcoxon-Holm tables.
+- `key_only_block_so8_triality_vector` reaches `1.000000 +/- 0.000000` logit cosine and `0.999349 +/- 0.001595` hidden cosine at 4-bit with `0.628906` memory ratio vs exact.
+- `multiscreen_relevance` is the strongest logit-side row in this reduced run at 4-bit with `1.002604 +/- 0.006379` logit cosine, `1.000000 +/- 0.000000` hidden cosine, and `0.660156` memory ratio.
+- `asym_q8_turbo4` is the most aggressive memory-saving comparison baseline that still preserves strong logits here, holding `0.378906` memory ratio with `1.001302 +/- 0.005881` logit cosine and `0.994141 +/- 0.004784` hidden cosine.
+- `full_kv` remains the memory floor but still pays the hidden-state penalty at low bits; at 3-bit it lands at `0.193359` memory ratio with `0.983073 +/- 0.003189` hidden cosine.
+
+### 4. Export the 12 GB matrix report bundle
+
+```powershell
+uv run python scripts\export_report.py --matrix-dir artifacts\qwen_3060_matrix
+```
+
+Exported report outputs land under:
+- `artifacts\qwen_3060_matrix\plots\`
+- `artifacts\qwen_3060_matrix\reports\qwen_3060_matrix_summary.md`
+
+### 5. Verify the vendored runtime consumption path
+
+```powershell
+.\scripts\build_rust_workspace.ps1 -Package hypura -NoCuda
+```
+
+This command validates `repo_contract.toml` and then invokes the Rust workspace build against the vendored `vendor/llama.cpp`.
+
+## Secondary Research Flows
+
+### Triality full pipeline (train + eval)
 
 [`scripts/run_triality_full_pipeline.py`](scripts/run_triality_full_pipeline.py) always runs
 `research_train_k_triality.py` then `research_validate_k_triality.py`.
@@ -210,7 +262,7 @@ uv run python scripts\paper_validate_captured_qwen.py --kv-dir artifacts\kv_4bit
 ```powershell
 $env:PYTHONUNBUFFERED = "1"
 uv run python scripts\run_triality_full_pipeline.py `
-  --kv-dir artifacts\kv_4bit `
+  --kv-dir artifacts\kv_rtx3060_qwen9b `
   --train-output-dir artifacts\research_extension\triality_full_train `
   --eval-output-dir artifacts\research_extension\triality_full_eval
 ```
@@ -219,7 +271,7 @@ Default `--bits`: `2,2.5,3,3.5,4,8` (8 is a repo extension; paper-only: `--bits 
 Everything after `--` is forwarded to the eval script:
 
 ```powershell
-uv run python scripts\run_triality_full_pipeline.py --kv-dir artifacts\kv_4bit -- --resume
+uv run python scripts\run_triality_full_pipeline.py --kv-dir artifacts\kv_rtx3060_qwen9b -- --resume
 ```
 
 **Note**: training still runs every time above. To evaluate only from saved rotations, use:
@@ -227,7 +279,7 @@ uv run python scripts\run_triality_full_pipeline.py --kv-dir artifacts\kv_4bit -
 ```powershell
 $env:PYTHONUNBUFFERED = "1"
 uv run python scripts\research_validate_k_triality.py `
-  --kv-dir artifacts\kv_4bit `
+  --kv-dir artifacts\kv_rtx3060_qwen9b `
   --rotation-dir artifacts\research_extension\triality_full_train\rotations `
   --bits 2,2.5,3,3.5,4,8 `
   --eval-device cuda `
@@ -237,29 +289,29 @@ uv run python scripts\research_validate_k_triality.py `
 
 **Important**: Never run multiple evals/pipelines on the **same `--output-dir`** concurrently.
 
-### 4. Mixed-bit Multiscreen + Triality Proxy
+### Mixed-bit Multiscreen + Triality Proxy
 
 ```powershell
 # Production K path (triality-proxy SO(8), vector proxy view, default --mode)
 uv run python scripts\research_validate_multiscreen_kv.py `
-  --captured-dir artifacts\kv_4bit --eval-device cuda
+  --captured-dir artifacts\kv_rtx3060_qwen9b --eval-device cuda
 
 # Ablation: multiscreen relevance + explicit bits
 uv run python scripts\research_validate_multiscreen_kv.py `
-  --captured-dir artifacts\kv_4bit --mode multiscreen_relevance --bits 3 --max-layers 4
+  --captured-dir artifacts\kv_rtx3060_qwen9b --mode multiscreen_relevance --bits 3 --max-layers 4
 ```
 
-### 5. VRAM / KV Footprint Multi-group Study
+### VRAM / KV Footprint Multi-group Study
 
 ```powershell
 uv run python scripts\research_vram_multigroup_qwen.py `
-  --kv-dir artifacts\kv_4bit `
+  --kv-dir artifacts\kv_rtx3060_qwen9b `
   --model-id "H:\Qwen3.5-9B-official-hf" `
   --eval-device cuda --trials 8
 
 # With learned rotations and triality vector mode
 uv run python scripts\research_vram_multigroup_qwen.py `
-  --kv-dir artifacts\kv_4bit --eval-device cuda --trials 8 `
+  --kv-dir artifacts\kv_rtx3060_qwen9b --eval-device cuda --trials 8 `
   --modes exact,multiscreen_relevance,multiscreen_triality_vector `
   --rotation-dir artifacts\research_extension\triality_full_train\rotations
 ```
@@ -267,6 +319,21 @@ uv run python scripts\research_vram_multigroup_qwen.py `
 ---
 
 ## Eval Output Layout
+
+### Primary 12GB matrix outputs
+
+| Path | Contents |
+| --- | --- |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_trials.csv` | Raw per-trial rows for the 7-mode 12 GB matrix |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_summary.csv` / `.md` | Pooled summary (mean, std, sem, CI) |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_mean_pm_sd.csv` / `.md` | Mode x bit mean +/- SD table |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_friedman.csv` / `.md` | Friedman test across the 7 modes |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_pairwise.csv` / `.md` | Pairwise Wilcoxon-Holm vs baseline modes |
+| `artifacts/qwen_3060_matrix/reports/qwen_3060_matrix_summary.md` | Exported Markdown summary used by repo docs |
+| `artifacts/qwen_3060_matrix/plots/qwen_3060_matrix_attention.png` | Attention/logit trade-off plot |
+| `artifacts/qwen_3060_matrix/plots/qwen_3060_matrix_runtime.png` | Runtime trade-off plot |
+
+### Secondary triality outputs
 
 | Path | Contents |
 | --- | --- |
@@ -285,7 +352,7 @@ Extra eval flags: `research_validate_k_triality.py -h` (`--skip-statistics`, `--
 
 ---
 
-## Qwen3.5-9B Captured Baseline Results (2–8 bit)
+## Paper Baseline Reference Results (Captured Qwen3.5-9B)
 
 *Source: `artifacts/paper_baseline/qwen_captured_full_bf16/metrics/attention_trials_captured.csv`; n = 96 per (mode, bit) — 4 prompts × 8 layers × 3 trials.*
 

@@ -49,6 +49,16 @@ class LlamaCppCompatibilityContract:
 
 
 @dataclass(frozen=True)
+class QwenRuntimeContract:
+    """Markers that define the 12GB-only Qwen TurboQuant runtime lane."""
+
+    kv_cache_source: Path
+    kv_cache_markers: tuple[str, ...]
+    qwen_model_source: Path
+    qwen_model_markers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class DocumentationContract:
     """Markers that must stay present in user-facing documentation."""
 
@@ -64,6 +74,7 @@ class RepositoryContract:
     paths: RepositoryPathContract
     rust: RustBuildContract
     llama_cpp_compat: LlamaCppCompatibilityContract
+    qwen_runtime: QwenRuntimeContract
     docs: DocumentationContract
     repo_root: Path
 
@@ -113,6 +124,12 @@ def load_repository_contract(repo_root: Path | None = None) -> RepositoryContrac
         required_source=Path(raw["llama_cpp_compat"]["required_source"]),
         required_source_markers=tuple(raw["llama_cpp_compat"]["required_source_markers"]),
     )
+    qwen_runtime = QwenRuntimeContract(
+        kv_cache_source=Path(raw["qwen_runtime"]["kv_cache_source"]),
+        kv_cache_markers=tuple(raw["qwen_runtime"]["kv_cache_markers"]),
+        qwen_model_source=Path(raw["qwen_runtime"]["qwen_model_source"]),
+        qwen_model_markers=tuple(raw["qwen_runtime"]["qwen_model_markers"]),
+    )
     docs = DocumentationContract(
         required_readme_markers=tuple(raw["docs"]["required_readme_markers"]),
         required_claude_markers=tuple(raw["docs"]["required_claude_markers"]),
@@ -122,6 +139,7 @@ def load_repository_contract(repo_root: Path | None = None) -> RepositoryContrac
         paths=paths,
         rust=rust,
         llama_cpp_compat=llama_cpp_compat,
+        qwen_runtime=qwen_runtime,
         docs=docs,
         repo_root=root,
     )
@@ -241,6 +259,33 @@ def validate_llama_cpp_checkout(
     return errors
 
 
+def validate_qwen_runtime_contract(
+    contract: RepositoryContract,
+    llama_cpp_dir: Path | None = None,
+    env: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Validate that the Qwen runtime lane markers are present in vendored llama.cpp."""
+
+    checkout_path = resolve_llama_cpp_checkout(contract, llama_cpp_dir=llama_cpp_dir, env=env)
+    errors: list[str] = []
+    kv_cache_path = checkout_path / contract.qwen_runtime.kv_cache_source
+    qwen_model_path = checkout_path / contract.qwen_runtime.qwen_model_source
+    if not kv_cache_path.is_file():
+        return [f"Resolved llama.cpp checkout is missing KV cache runtime file '{contract.qwen_runtime.kv_cache_source.as_posix()}': '{checkout_path}'."]
+    if not qwen_model_path.is_file():
+        return [f"Resolved llama.cpp checkout is missing Qwen runtime file '{contract.qwen_runtime.qwen_model_source.as_posix()}': '{checkout_path}'."]
+
+    kv_cache_text = _read_text(kv_cache_path)
+    qwen_model_text = _read_text(qwen_model_path)
+    for marker in contract.qwen_runtime.kv_cache_markers:
+        if marker not in kv_cache_text:
+            errors.append(f"{kv_cache_path.as_posix()} is missing required Qwen runtime marker '{marker}'.")
+    for marker in contract.qwen_runtime.qwen_model_markers:
+        if marker not in qwen_model_text:
+            errors.append(f"{qwen_model_path.as_posix()} is missing required Qwen runtime marker '{marker}'.")
+    return errors
+
+
 def validate_rust_build_script(contract: RepositoryContract) -> list[str]:
     """Validate that Rust build glue still advertises the expected llama.cpp contract."""
 
@@ -287,6 +332,7 @@ def collect_repository_contract_errors(repo_root: Path | None = None) -> list[st
     errors.extend(validate_gitmodules(contract))
     errors.extend(validate_vendor_remote(contract))
     errors.extend(validate_llama_cpp_checkout(contract))
+    errors.extend(validate_qwen_runtime_contract(contract))
     errors.extend(validate_rust_build_script(contract))
     errors.extend(validate_documentation(contract))
     return errors

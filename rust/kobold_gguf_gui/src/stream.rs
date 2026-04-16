@@ -9,15 +9,13 @@ use serde_json::{json, Value};
 /// Map one OpenAI completion SSE JSON chunk to Kobold `event: message` lines.
 fn oai_chunk_to_kai_lines(v: &Value) -> Vec<String> {
     let mut out = Vec::new();
-    let finish = v
-        .pointer("/choices/0/finish_reason")
-        .and_then(|x| {
-            if x.is_null() {
-                None
-            } else {
-                x.as_str().map(str::to_owned)
-            }
-        });
+    let finish = v.pointer("/choices/0/finish_reason").and_then(|x| {
+        if x.is_null() {
+            None
+        } else {
+            x.as_str().map(str::to_owned)
+        }
+    });
 
     let mut piece = v
         .pointer("/choices/0/text")
