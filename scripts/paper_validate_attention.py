@@ -18,7 +18,7 @@ from turboquant.paper_baseline import evaluate_paper_attention_grid
 ARTIFACT_ROOT = Path("artifacts") / "paper_baseline"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the PyTorch-only toy attention benchmark for the paper baseline.")
     parser.add_argument("--trials", type=int, default=8)
     parser.add_argument("--synthetic-layers", type=int, default=4)
@@ -27,11 +27,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seq-len", type=int, default=64)
     parser.add_argument("--head-dim", type=int, default=128)
     parser.add_argument("--bits", default="2,2.5,3,3.5,4,8")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     bit_grid = [float(item) for item in args.bits.split(",") if item]
     output_dir = ensure_dir(ARTIFACT_ROOT / "metrics")
 

@@ -33,6 +33,17 @@ hf_qwen = [
   "sentencepiece>=0.2",
   "transformers>=4.52",
 ]
+eval = [
+  "accelerate>=1.5",
+  "bitsandbytes>=0.45",
+  "datasets>=4.8",
+  "evaluate>=0.4",
+  "lm-eval[api]>=0.4.11",
+  "openai>=2.0",
+  "safetensors>=0.5",
+  "sentencepiece>=0.2",
+  "transformers>=4.52",
+]
 multiscreen_parity = [
   "multiscreen-pytorch @ git+https://github.com/zapabob/multiscreen-pytorch.git",
 ]

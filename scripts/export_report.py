@@ -43,14 +43,14 @@ PLOT_MODES = [
 ]
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render TurboQuant report artifacts.")
     parser.add_argument(
         "--matrix-dir",
         default=None,
         help="Optional qwen_3060_matrix artifact root. When set, export the 12GB Qwen matrix report from that directory.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _metric_label(metric: str) -> str:
@@ -624,8 +624,8 @@ def export_qwen_3060_matrix_report(matrix_root: Path) -> int:
     return 0
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     if args.matrix_dir:
         return export_qwen_3060_matrix_report(Path(args.matrix_dir))
 

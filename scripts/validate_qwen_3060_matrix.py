@@ -31,7 +31,7 @@ from turboquant.runtime import RTX3060_12GB_LANE
 ARTIFACT_ROOT = Path("artifacts") / "qwen_3060_matrix"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the 12GB-only Qwen RTX 3060 comparison matrix.")
     parser.add_argument("--kv-dir", default="artifacts/kv_rtx3060_qwen9b")
     parser.add_argument(
@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ms-regular-bits", type=int, default=2)
     parser.add_argument("--ms-outlier-bits", type=int, default=4)
     parser.add_argument("--ms-outlier-count", type=int, default=64)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _utc_now() -> str:
@@ -69,8 +69,8 @@ def _attach_capture_metadata(row: dict[str, float | int | str], bundle) -> None:
     row["model_preset"] = metadata.model_preset or ""
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     bit_grid = [float(item) for item in args.bits.split(",") if item]
     output_dir = ensure_dir(Path(args.output_dir))
     metrics_dir = ensure_dir(output_dir / "metrics")

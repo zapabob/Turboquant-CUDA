@@ -34,7 +34,7 @@ from turboquant.runtime import (
 from turboquant.schema import build_capture_quantization_config
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Capture Qwen3.5 KV cache tensors.")
     parser.add_argument("--model-id", default=None)
     parser.add_argument("--model-preset", choices=model_preset_names(), default=None)
@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trust-remote-code", action="store_true")
     parser.add_argument("--max-length", type=int, default=96)
     parser.add_argument("--seed", type=int, default=0)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def build_model_kwargs(args: argparse.Namespace) -> dict[str, object]:
@@ -153,7 +153,7 @@ def save_single_capture(
     return output_dir
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except ImportError as exc:
@@ -163,7 +163,7 @@ def main() -> int:
         ) from exc
 
     require_supported_python()
-    args = parse_args()
+    args = parse_args(argv)
     if torch_cuda_version(torch) != REQUIRED_CUDA or not torch.cuda.is_available():
         raise RuntimeError(
             f"capture_qwen_kv.py requires torch with CUDA {REQUIRED_CUDA} and a visible GPU."

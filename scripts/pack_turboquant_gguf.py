@@ -19,7 +19,7 @@ from turboquant.gguf_profiles import (
 )
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Package an existing GGUF into a single TurboQuant-aware GGUF with embedded runtime profiles."
     )
@@ -68,11 +68,11 @@ def parse_args() -> argparse.Namespace:
         help="QJL seed recorded for the paper-faithful random-Haar profile.",
     )
     parser.add_argument("--force", action="store_true", help="Overwrite --output-gguf if it already exists.")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     input_gguf = Path(args.input_gguf)
     output_gguf = Path(args.output_gguf)
     requested_profiles = [item.strip() for item in args.profiles.split(",") if item.strip()]

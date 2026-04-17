@@ -93,7 +93,7 @@ def render_mean_pm_sd_plot(summary_table: pd.DataFrame, output_path: Path) -> No
     plt.close(fig)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run paper-baseline captured replay on Qwen3.5-9B KV tensors.")
     parser.add_argument("--kv-dir", default="artifacts/kv")
     parser.add_argument("--trials", type=int, default=3)
@@ -102,11 +102,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=str(ARTIFACT_ROOT))
     parser.add_argument("--write-config", action="store_true")
     parser.add_argument("--config-out", default=None)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     bit_grid = [float(item) for item in args.bits.split(",") if item]
     output_dir = ensure_dir(Path(args.output_dir))
     metrics_dir = ensure_dir(output_dir / "metrics")
