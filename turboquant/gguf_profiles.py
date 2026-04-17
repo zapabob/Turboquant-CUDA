@@ -21,6 +21,11 @@ from turboquant.research_extension.k_triality import (
     load_triality_proxy_rotations,
 )
 from turboquant.schema import build_paper_turboquant_config
+from turboquant.triality_contract import (
+    build_triality_metadata,
+    build_triality_payload,
+    payload_json_dumps,
+)
 
 
 GGUF_TURBOQUANT_SCHEMA_VERSION = 1
@@ -350,7 +355,15 @@ def package_turboquant_gguf(
         gguf=gguf,
     )
     if hypura_bridge is not None:
-        _write_hypura_bridge_metadata(writer=writer, bridge=hypura_bridge, gguf=gguf)
+        bridge_profile = next(
+            profile for profile in profiles if profile.name == hypura_bridge.source_profile
+        )
+        _write_hypura_bridge_metadata(
+            writer=writer,
+            bridge=hypura_bridge,
+            profile=bridge_profile,
+            gguf=gguf,
+        )
     for profile in profiles:
         _write_profile_manifest(writer=writer, profile=profile, gguf=gguf)
 
@@ -487,10 +500,16 @@ def read_hypura_gguf_bridge_config(path: Path) -> HypuraTurboQuantBridgeConfig |
     enabled = _read_optional_bool(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.enabled")
     if not enabled:
         return None
-    mode = _read_required_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.mode")
+    public_mode = _read_required_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.mode")
+    runtime_mode = _read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.runtime_mode")
+    if runtime_mode is None:
+        runtime_mode = {
+            "paper-faithful": "paper-key-only",
+            "triality-so8-pareto": "research-kv-split",
+        }.get(public_mode, public_mode)
     return HypuraTurboQuantBridgeConfig(
         source_profile=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.source_profile") or "unknown",
-        mode=mode,
+        mode=runtime_mode,
         rotation_policy=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.rotation_policy"),
         triality_view=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_view"),
         triality_mix=_read_optional_float(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_mix"),
@@ -620,37 +639,52 @@ def _write_top_level_manifest(
     )
 
 
-def _write_hypura_bridge_metadata(*, writer: Any, bridge: HypuraTurboQuantBridgeConfig, gguf: ModuleType) -> None:
-    writer.add_key_value(f"{HYPURA_TURBOQUANT_NAMESPACE}.enabled", True, gguf.GGUFValueType.BOOL)
-    writer.add_key_value(f"{HYPURA_TURBOQUANT_NAMESPACE}.mode", bridge.mode, gguf.GGUFValueType.STRING)
-    writer.add_key_value(
-        f"{HYPURA_TURBOQUANT_NAMESPACE}.source_profile",
-        bridge.source_profile,
-        gguf.GGUFValueType.STRING,
+def _write_hypura_bridge_metadata(
+    *,
+    writer: Any,
+    bridge: HypuraTurboQuantBridgeConfig,
+    profile: TurboQuantGGUFProfile,
+    gguf: ModuleType,
+) -> None:
+    if profile.kind == "paper_faithful":
+        public_mode = "paper-faithful"
+    else:
+        public_mode = "triality-so8-pareto"
+
+    payload = build_triality_payload(
+        mode=public_mode,
+        head_dim=int(profile.manifest.get("head_dim", profile.metadata.get("head_dim", 0))),
+        num_layers=len(profile.manifest.get("layer_indices", [])) or 1,
+        num_kv_heads=1,
+        rotation_seed=int(profile.metadata.get("rotation_seed", bridge.rotation_seed)),
+        source_manifest=profile.manifest,
     )
-    writer.add_key_value(
-        f"{HYPURA_TURBOQUANT_NAMESPACE}.rotation_seed",
-        int(bridge.rotation_seed),
-        gguf.GGUFValueType.UINT32,
+    payload_json = payload_json_dumps(payload)
+    metadata = build_triality_metadata(
+        mode=public_mode,
+        payload_json=payload_json,
+        rotation_policy=bridge.rotation_policy or str(profile.metadata.get("rotation_policy", "")),
+        rotation_seed=bridge.rotation_seed,
+        triality_view=bridge.triality_view or str(profile.metadata.get("triality_view", "none")),
+        triality_mix=bridge.triality_mix if bridge.triality_mix is not None else float(profile.metadata.get("triality_mix", 0.0)),
+        k_bits=float(profile.metadata.get("bits_total", profile.manifest.get("bits_total", 0.0))),
+        v_bits=float(profile.metadata.get("v_bits", 8.0 if public_mode == "triality-so8-pareto" else 16.0)),
+        runtime_mode=bridge.mode,
+        source_profile=bridge.source_profile,
     )
-    if bridge.rotation_policy is not None:
-        writer.add_key_value(
-            f"{HYPURA_TURBOQUANT_NAMESPACE}.rotation_policy",
-            bridge.rotation_policy,
-            gguf.GGUFValueType.STRING,
-        )
-    if bridge.triality_view is not None:
-        writer.add_key_value(
-            f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_view",
-            bridge.triality_view,
-            gguf.GGUFValueType.STRING,
-        )
-    if bridge.triality_mix is not None:
-        writer.add_key_value(
-            f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_mix",
-            float(bridge.triality_mix),
-            gguf.GGUFValueType.FLOAT32,
-        )
+
+    for key, value in metadata.items():
+        if isinstance(value, bool):
+            writer.add_key_value(key, value, gguf.GGUFValueType.BOOL)
+        elif isinstance(value, int):
+            if key.endswith("payload_bytes"):
+                writer.add_key_value(key, value, gguf.GGUFValueType.UINT64)
+            else:
+                writer.add_key_value(key, value, gguf.GGUFValueType.UINT32)
+        elif isinstance(value, float):
+            writer.add_key_value(key, value, gguf.GGUFValueType.FLOAT32)
+        else:
+            writer.add_key_value(key, str(value), gguf.GGUFValueType.STRING)
     if bridge.artifact_path is not None:
         writer.add_key_value(
             f"{HYPURA_TURBOQUANT_NAMESPACE}.artifact",

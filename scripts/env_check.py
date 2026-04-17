@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import importlib
+import os
 import platform
 from pathlib import Path
 import sys
@@ -11,7 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-REPORT_PATH = Path("artifacts/reports/env_check.txt")
+REPORT_PATH = Path(os.environ.get("TURBOQUANT_ENV_CHECK_PATH", "artifacts/reports/env_check.txt"))
 
 
 def try_import(name: str):
