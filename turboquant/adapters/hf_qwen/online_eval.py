@@ -10,14 +10,21 @@ from typing import Any, Callable
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
-from transformers.cache_utils import Cache
+from transformers.cache_utils import Cache, DynamicCache
 from transformers.models.qwen3.modeling_qwen3 import Qwen3Attention, apply_rotary_pos_emb, repeat_kv
 from transformers.models.qwen3_5.modeling_qwen3_5 import (
     Qwen3_5Attention,
-    Qwen3_5DynamicCache,
     apply_rotary_pos_emb as apply_rotary_pos_emb_qwen35,
     repeat_kv as repeat_kv_qwen35,
 )
+
+try:
+    from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5DynamicCache
+
+    _USES_GENERIC_QWEN35_DYNAMIC_CACHE = False
+except ImportError:
+    Qwen3_5DynamicCache = DynamicCache
+    _USES_GENERIC_QWEN35_DYNAMIC_CACHE = True
 
 from turboquant.allocation import ChannelBitAllocation
 from turboquant.hf_cache import CacheBackend, ExactCacheBackend, TurboQuantCacheBackend
@@ -292,7 +299,12 @@ class TurboQuantQwen35Cache(Qwen3_5DynamicCache):
         backend_factories: dict[int, Callable[[], CacheBackend]],
         model_config,
     ) -> None:
-        super().__init__(model_config)
+        if _USES_GENERIC_QWEN35_DYNAMIC_CACHE:
+            super().__init__(config=model_config)
+            self._layer_types = _resolve_qwen35_layer_types(model_config)
+        else:
+            super().__init__(model_config)
+            self._layer_types = list(self.layer_types)
         self._backend_factories = backend_factories
         self.backends = {layer_idx: factory() for layer_idx, factory in backend_factories.items()}
 
@@ -309,7 +321,7 @@ class TurboQuantQwen35Cache(Qwen3_5DynamicCache):
         layer_idx: int,
         cache_kwargs: dict[str, Any] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if self.layer_types[layer_idx] != "full_attention":
+        if self._layer_types[layer_idx] != "full_attention":
             return super().update(key_states, value_states, layer_idx, cache_kwargs)
         if key_states.shape[0] != 1:
             raise ValueError("TurboQuantQwen35Cache currently supports batch size 1 only")
@@ -319,9 +331,32 @@ class TurboQuantQwen35Cache(Qwen3_5DynamicCache):
             raise ValueError(f"Expected matching key/value dtype, got {key_states.dtype} and {value_states.dtype}")
         backend = self.get_backend(layer_idx)
         backend.append(layer_idx, key_states.detach(), value_states.detach())
-        self.key_cache[layer_idx] = backend.get_keys(layer_idx)
-        self.value_cache[layer_idx] = backend.get_values(layer_idx)
-        return self.key_cache[layer_idx], self.value_cache[layer_idx]
+        keys = backend.get_keys(layer_idx)
+        values = backend.get_values(layer_idx)
+        if not _USES_GENERIC_QWEN35_DYNAMIC_CACHE:
+            self.key_cache[layer_idx] = keys
+            self.value_cache[layer_idx] = values
+        return keys, values
+
+    def get_seq_length(self, layer_idx: int = 0) -> int:
+        if self._layer_types[layer_idx] == "full_attention":
+            backend = self.get_backend(layer_idx)
+            return int(backend.get_keys(layer_idx).shape[-2]) if backend.get_keys(layer_idx).numel() else 0
+        return super().get_seq_length(layer_idx)
+
+
+def _resolve_qwen35_layer_types(model_config: Any) -> list[str]:
+    """Resolve Qwen3.5 cache layer types across transformer cache API variants."""
+
+    decoder_config = model_config.get_text_config(decoder=True) if hasattr(model_config, "get_text_config") else model_config
+    sliding_window = getattr(decoder_config, "sliding_window", None) or getattr(decoder_config, "attention_chunk_size", None)
+    layer_types = getattr(decoder_config, "layer_types", None)
+    if layer_types is None:
+        default_type = "sliding_attention" if sliding_window is not None else "full_attention"
+        layer_types = [default_type for _ in range(decoder_config.num_hidden_layers)]
+    if hasattr(decoder_config, "num_kv_shared_layers"):
+        layer_types = layer_types[: -decoder_config.num_kv_shared_layers]
+    return list(layer_types)
 
 
 def _mode_seed(layer_idx: int, bits: float, salt: int) -> int:
