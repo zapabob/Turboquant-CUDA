@@ -1,4 +1,4 @@
-"""Triality Platform GGUF contract helpers."""
+"""Legacy Hypura bridge compatibility helpers for Triality Platform GGUF exports."""
 
 from __future__ import annotations
 
@@ -8,14 +8,18 @@ from typing import Any, Literal
 
 from turboquant.schema import build_paper_turboquant_config
 
-TrialityPublicMode = Literal["paper-faithful", "triality-so8-pareto"]
+TRIALITY_PROXY_PARETO_MODE = "triality-proxy-so8-pareto"
+TRIALITY_PROXY_PARETO_LEGACY_ALIAS = "triality-so8-pareto"
+
+TrialityPublicMode = Literal["paper-faithful", "triality-proxy-so8-pareto", "triality-so8-pareto"]
 
 TRIALITY_GGUF_SCHEMA_VERSION = 1
 TRIALITY_GGUF_PAYLOAD_FORMAT = "json-inline-v1"
 TRIALITY_GGUF_NAMESPACE = "hypura.turboquant"
 TRIALITY_ALLOWED_MODES: tuple[TrialityPublicMode, ...] = (
     "paper-faithful",
-    "triality-so8-pareto",
+    TRIALITY_PROXY_PARETO_MODE,
+    TRIALITY_PROXY_PARETO_LEGACY_ALIAS,
 )
 TRIALITY_REQUIRED_KEYS = (
     "hypura.turboquant.schema_version",
@@ -59,9 +63,9 @@ def resolve_triality_mode_spec(mode: str) -> TrialityModeSpec:
             k_bits=3.5,
             v_bits=16.0,
         )
-    if mode == "triality-so8-pareto":
+    if mode in {TRIALITY_PROXY_PARETO_MODE, TRIALITY_PROXY_PARETO_LEGACY_ALIAS}:
         return TrialityModeSpec(
-            mode="triality-so8-pareto",
+            mode=TRIALITY_PROXY_PARETO_MODE,
             runtime_mode="research-kv-split",
             rotation_policy="block_so8_learned",
             rotation_seed=17,
@@ -123,7 +127,7 @@ def build_triality_payload(
         )
     else:
         payload["pareto_profile"] = {
-            "frontier_label": "triality-so8-pareto",
+            "frontier_label": TRIALITY_PROXY_PARETO_MODE,
             "selection_policy": "latency_quality_balanced",
             "rotation_family": "block-so8",
             "view_family": spec.triality_view,
@@ -236,6 +240,8 @@ __all__ = [
     "TRIALITY_GGUF_NAMESPACE",
     "TRIALITY_GGUF_PAYLOAD_FORMAT",
     "TRIALITY_GGUF_SCHEMA_VERSION",
+    "TRIALITY_PROXY_PARETO_LEGACY_ALIAS",
+    "TRIALITY_PROXY_PARETO_MODE",
     "TRIALITY_REQUIRED_KEYS",
     "TrialityModeSpec",
     "build_triality_metadata",

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import importlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -20,8 +21,17 @@ from turboquant.research_extension.k_triality import (
     PRODUCTION_K_TURBOQUANT_VIEW,
     load_triality_proxy_rotations,
 )
-from turboquant.schema import build_paper_turboquant_config
+from turboquant.schema import (
+    TURBOQUANT_GGUF_FLOAT_KEYS,
+    TURBOQUANT_GGUF_STRING_KEYS,
+    TURBOQUANT_GGUF_U32_KEYS,
+    build_paper_turboquant_config,
+    build_turboquant_gguf_contract,
+    validate_turboquant_gguf_contract,
+)
 from turboquant.triality_contract import (
+    TRIALITY_PROXY_PARETO_LEGACY_ALIAS,
+    TRIALITY_PROXY_PARETO_MODE,
     build_triality_metadata,
     build_triality_payload,
     payload_json_dumps,
@@ -95,9 +105,25 @@ class HypuraTurboQuantBridgeConfig:
 def import_vendor_gguf() -> ModuleType:
     """Import the vendored `gguf-py` package shipped with `vendor/llama.cpp`."""
 
-    gguf_python_dir = Path(__file__).resolve().parents[1] / "vendor" / "llama.cpp" / "gguf-py"
-    if not gguf_python_dir.exists():
-        raise FileNotFoundError(f"Vendored gguf-py directory is missing: {gguf_python_dir}")
+    module_path = Path(__file__).resolve()
+    candidate_dirs: list[Path] = []
+    for env_key in ("LLAMA_CPP_DIR", "HYPURA_LLAMA_CPP_DIR"):
+        env_value = os.environ.get(env_key)
+        if env_value:
+            candidate_dirs.append(Path(env_value) / "gguf-py")
+    candidate_dirs.extend(
+        [
+            module_path.parents[1] / "vendor" / "llama.cpp" / "gguf-py",
+            module_path.parents[2] / "llama.cpp" / "gguf-py",
+            module_path.parents[3] / "vendor" / "llama.cpp" / "gguf-py",
+        ]
+    )
+
+    gguf_python_dir = next((path for path in candidate_dirs if path.exists()), None)
+    if gguf_python_dir is None:
+        searched = ", ".join(str(path) for path in candidate_dirs)
+        raise FileNotFoundError(f"Vendored gguf-py directory is missing; searched: {searched}")
+
     gguf_python_dir_str = str(gguf_python_dir)
     if gguf_python_dir_str not in sys.path:
         sys.path.insert(0, gguf_python_dir_str)
@@ -243,6 +269,11 @@ def build_so8_triality_vector_gguf_profile(
                 "Embedded triality rotations exceed GGUF block count: "
                 f"max layer {max_layer}, block_count {expected_block_count}"
             )
+    if layer_indices != list(range(len(layer_indices))):
+        raise ValueError(
+            "Strict GGUF `tq_*` export requires contiguous layer coverage starting at 0; "
+            f"got layer indices {layer_indices}"
+        )
 
     common_metadata = selected[0][1].metadata
     head_dim = int(selected[0][1].rotation.shape[-1])
@@ -271,6 +302,7 @@ def build_so8_triality_vector_gguf_profile(
                 data=artifact.rotation.detach().cpu().to(dtype=artifact.rotation.dtype).numpy().astype(np.float32, copy=False),
             )
         )
+    strict_gguf_contract = build_turboquant_gguf_contract([artifact.metadata for _layer_idx, artifact in selected])
 
     manifest = {
         "schema_kind": "gguf_embedded_profile",
@@ -289,6 +321,7 @@ def build_so8_triality_vector_gguf_profile(
         "qjl_seed": int(common_metadata["tq_qjl_seed"]),
         "layer_indices": layer_indices,
         "artifact_tensor_names": tensor_names,
+        "strict_gguf_contract": strict_gguf_contract,
     }
     return TurboQuantGGUFProfile(
         name=name,
@@ -308,6 +341,7 @@ def build_so8_triality_vector_gguf_profile(
             "triality_mode": str(common_metadata["tq_triality_mode"]),
             "triality_view": PRODUCTION_K_TURBOQUANT_VIEW,
             "artifact_tensor_names": tensor_names,
+            **strict_gguf_contract,
         },
         tensors=tensors,
     )
@@ -332,6 +366,10 @@ def package_turboquant_gguf(
 
     _validate_default_profile(default_profile=default_profile, profiles=profiles)
     _validate_unique_profile_names(profiles)
+    strict_gguf_profile = resolve_strict_gguf_contract_profile(
+        profiles=profiles,
+        requested_profile=hypura_compatibility_profile,
+    )
     hypura_bridge = resolve_hypura_compatibility_bridge(
         profiles=profiles,
         requested_profile=hypura_compatibility_profile,
@@ -354,6 +392,8 @@ def package_turboquant_gguf(
         profile_names=[profile.name for profile in profiles],
         gguf=gguf,
     )
+    if strict_gguf_profile is not None:
+        _write_strict_gguf_contract(writer=writer, profile=strict_gguf_profile, gguf=gguf)
     if hypura_bridge is not None:
         bridge_profile = next(
             profile for profile in profiles if profile.name == hypura_bridge.source_profile
@@ -469,8 +509,35 @@ def resolve_hypura_compatibility_bridge(
     return build_hypura_bridge_config(profiles_by_name[requested_profile])
 
 
+def resolve_strict_gguf_contract_profile(
+    *,
+    profiles: list[TurboQuantGGUFProfile],
+    requested_profile: str = GGUF_HYPURA_COMPAT_AUTO,
+) -> TurboQuantGGUFProfile | None:
+    """Resolve which embedded profile should own the canonical top-level `tq_*` GGUF contract."""
+
+    research_profiles = [profile for profile in profiles if profile.kind != "paper_faithful"]
+    profiles_by_name = {profile.name: profile for profile in profiles}
+
+    if requested_profile == GGUF_HYPURA_COMPAT_OFF:
+        return research_profiles[0] if len(research_profiles) == 1 else None
+
+    if requested_profile == GGUF_HYPURA_COMPAT_AUTO:
+        profile = profiles_by_name.get("so8_triality_vector")
+        return profile if profile is not None else (research_profiles[0] if len(research_profiles) == 1 else None)
+
+    if requested_profile not in profiles_by_name:
+        available = ", ".join(sorted(profiles_by_name))
+        raise ValueError(
+            "Requested strict GGUF contract profile is not embedded in the GGUF: "
+            f"{requested_profile!r}. Available profiles: {available}"
+        )
+    profile = profiles_by_name[requested_profile]
+    return None if profile.kind == "paper_faithful" else profile
+
+
 def build_hypura_bridge_config(profile: TurboQuantGGUFProfile) -> HypuraTurboQuantBridgeConfig:
-    """Map an embedded TurboQuant profile to the Hypura GGUF metadata bridge."""
+    """Map an embedded TurboQuant profile to the legacy Hypura GGUF compatibility bridge."""
 
     if profile.kind == "triality_proxy_vector":
         rotation_seed = int(profile.metadata.get("rotation_seed", 0))
@@ -500,12 +567,13 @@ def read_hypura_gguf_bridge_config(path: Path) -> HypuraTurboQuantBridgeConfig |
     enabled = _read_optional_bool(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.enabled")
     if not enabled:
         return None
-    public_mode = _read_required_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.mode")
+        public_mode = _read_required_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.mode")
     runtime_mode = _read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.runtime_mode")
     if runtime_mode is None:
         runtime_mode = {
             "paper-faithful": "paper-key-only",
-            "triality-so8-pareto": "research-kv-split",
+            TRIALITY_PROXY_PARETO_MODE: "research-kv-split",
+            TRIALITY_PROXY_PARETO_LEGACY_ALIAS: "research-kv-split",
         }.get(public_mode, public_mode)
     return HypuraTurboQuantBridgeConfig(
         source_profile=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.source_profile") or "unknown",
@@ -639,6 +707,23 @@ def _write_top_level_manifest(
     )
 
 
+def _write_strict_gguf_contract(*, writer: Any, profile: TurboQuantGGUFProfile, gguf: ModuleType) -> None:
+    contract = profile.manifest.get("strict_gguf_contract")
+    if not isinstance(contract, dict):
+        raise ValueError(
+            f"Embedded profile {profile.name!r} is missing manifest.strict_gguf_contract and cannot export canonical tq_* keys"
+        )
+    validate_turboquant_gguf_contract(contract)
+
+    writer.add_key_value("tq_schema_version", int(contract["tq_schema_version"]), gguf.GGUFValueType.UINT32)
+    for key in TURBOQUANT_GGUF_FLOAT_KEYS:
+        writer.add_key_value(key, contract[key], gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.FLOAT32)
+    for key in TURBOQUANT_GGUF_U32_KEYS:
+        writer.add_key_value(key, contract[key], gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.UINT32)
+    for key in TURBOQUANT_GGUF_STRING_KEYS:
+        writer.add_key_value(key, contract[key], gguf.GGUFValueType.ARRAY, gguf.GGUFValueType.STRING)
+
+
 def _write_hypura_bridge_metadata(
     *,
     writer: Any,
@@ -649,7 +734,7 @@ def _write_hypura_bridge_metadata(
     if profile.kind == "paper_faithful":
         public_mode = "paper-faithful"
     else:
-        public_mode = "triality-so8-pareto"
+        public_mode = TRIALITY_PROXY_PARETO_MODE
 
     payload = build_triality_payload(
         mode=public_mode,
@@ -668,7 +753,7 @@ def _write_hypura_bridge_metadata(
         triality_view=bridge.triality_view or str(profile.metadata.get("triality_view", "none")),
         triality_mix=bridge.triality_mix if bridge.triality_mix is not None else float(profile.metadata.get("triality_mix", 0.0)),
         k_bits=float(profile.metadata.get("bits_total", profile.manifest.get("bits_total", 0.0))),
-        v_bits=float(profile.metadata.get("v_bits", 8.0 if public_mode == "triality-so8-pareto" else 16.0)),
+        v_bits=float(profile.metadata.get("v_bits", 8.0 if public_mode == TRIALITY_PROXY_PARETO_MODE else 16.0)),
         runtime_mode=bridge.mode,
         source_profile=bridge.source_profile,
     )
@@ -839,5 +924,6 @@ __all__ = [
     "package_turboquant_gguf",
     "read_hypura_gguf_bridge_config",
     "read_turboquant_gguf_manifest",
+    "resolve_strict_gguf_contract_profile",
     "resolve_hypura_compatibility_bridge",
 ]

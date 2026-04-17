@@ -222,6 +222,20 @@ def test_package_embeds_hypura_bridge_metadata_for_triality_profile(tmp_path: Pa
         hypura_compatibility_profile=GGUF_HYPURA_COMPAT_AUTO,
     )
 
+    manifest = read_turboquant_gguf_manifest(output)
+    strict_contract = manifest.profiles["so8_triality_vector"].manifest["strict_gguf_contract"]
+    assert strict_contract["tq_total_bits"] == [3.5, 3.5]
+    assert strict_contract["tq_triality_mode"] == ["triality_proxy", "triality_proxy"]
+    assert strict_contract["tq_triality_view"] == ["vector", "vector"]
+
+    gguf = import_vendor_gguf()
+    reader = gguf.GGUFReader(output)
+    assert int(reader.get_field("tq_schema_version").contents()) == 1
+    assert list(reader.get_field("tq_qjl_bits").contents()) == [1, 1]
+    assert list(reader.get_field("tq_triality_mode").contents()) == ["triality_proxy", "triality_proxy"]
+    assert list(reader.get_field("tq_triality_view").contents()) == ["vector", "vector"]
+    assert str(reader.get_field("hypura.turboquant.mode").contents()) == "triality-proxy-so8-pareto"
+
     bridge = read_hypura_gguf_bridge_config(output)
     assert bridge is not None
     assert bridge.source_profile == "so8_triality_vector"
