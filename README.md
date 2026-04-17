@@ -174,6 +174,61 @@ uv run python scripts\validate_repo_contract.py
 
 ---
 
+## TurboQuant Studio (Local Workbench)
+
+`TurboQuant Studio` is the local single-user operator shell for this repo:
+
+- **backend**: FastAPI job orchestration over the existing capture / validate / runtime / export / serve flows
+- **frontend**: React + Vite SPA with tabs for `Setup`, `Capture`, `Offline Validate`, `Compare`, `Runtime Eval`, `Package & Export`, and `Serve`
+- **artifact contract**: result files stay in the existing `artifacts\...` roots; Studio only indexes and orchestrates them
+
+Research rules remain visible in the UI:
+
+- offline-first
+- Stage 1 / Stage 2 kept distinct
+- exact / exact-score / estimated-score kept distinct
+- reconstruction metrics separated from attention / logit metrics
+- reproducibility metadata attached to every run record
+
+### Backend startup
+
+```powershell
+uv run python scripts\run_turboquant_studio.py
+```
+
+This serves the FastAPI API at `http://127.0.0.1:8000` and, after a frontend build, also serves the Studio UI.
+
+### Frontend dev workflow
+
+```powershell
+Set-Location .\studio-web
+npm install
+npm run dev
+```
+
+The Vite dev server proxies `/api` and `/artifacts` back to the local FastAPI app.
+
+### Frontend production build
+
+```powershell
+Set-Location .\studio-web
+npm run build
+```
+
+After the build, open `http://127.0.0.1:8000/studio`.
+
+### Validation-first workflow
+
+Every Studio action follows the same operator pattern:
+
+1. `Validate`
+2. `Preview`
+3. `Run`
+
+Use dry-run previews first for capture, matrix validation, runtime evaluation, packaging, and serving changes.
+
+---
+
 ## RTX 3060 12GB Matrix Flow
 
 ### 1. Qwen KV Capture

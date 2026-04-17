@@ -13,6 +13,11 @@ __pycache__/
 .cache/
 .codex/
 .worktrees/
+studio-web/node_modules/
+studio-web/dist/
+studio-web/*.tsbuildinfo
+studio-web/vite.config.js
+studio-web/vite.config.d.ts
 artifacts/kv/
 artifacts/kv_rtx3060_fresh/
 artifacts/metrics_smoke/

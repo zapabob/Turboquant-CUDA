@@ -1,0 +1,405 @@
+:root {
+  color-scheme: light;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: #1f2320;
+  background:
+    radial-gradient(circle at top left, rgba(163, 183, 149, 0.35), transparent 34%),
+    linear-gradient(180deg, #f4efe4 0%, #f8f5ee 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-shell {
+  display: grid;
+  gap: 1rem;
+  min-height: 100vh;
+  padding: 1.25rem;
+}
+
+.topbar,
+.panel,
+.history-panel {
+  border: 1px solid rgba(71, 85, 68, 0.16);
+  border-radius: 20px;
+  background: rgba(255, 252, 247, 0.92);
+  box-shadow: 0 20px 50px rgba(74, 56, 32, 0.08);
+}
+
+.topbar,
+.panel-header,
+.status-card-head,
+.history-item,
+.meta-strip,
+.button-row,
+.tabbar,
+.topbar-actions,
+.details-grid,
+.history-toolbar,
+.history-filters {
+  display: flex;
+  align-items: center;
+}
+
+.topbar,
+.history-toolbar,
+.history-item,
+.status-card-head {
+  justify-content: space-between;
+}
+
+.topbar {
+  padding: 1.25rem 1.5rem;
+}
+
+.eyebrow,
+.detail-label,
+.field-label,
+.field-helper,
+.panel-subtitle,
+.history-meta,
+.history-id,
+.validation-message {
+  color: #626858;
+  font-size: 0.85rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+h1,
+h2,
+.panel-title {
+  margin: 0;
+  font-family: "IBM Plex Serif", Georgia, serif;
+}
+
+.topbar h1 {
+  font-size: 2rem;
+}
+
+.topbar-actions,
+.button-row,
+.history-filters,
+.meta-strip,
+.details-grid,
+.tabbar,
+.card-grid,
+.panel-grid,
+.workspace-grid,
+.stack-list,
+.form-grid,
+.image-grid {
+  gap: 0.75rem;
+}
+
+.meta-strip {
+  flex-wrap: wrap;
+}
+
+.panel {
+  padding: 1rem 1.1rem;
+}
+
+.panel-header {
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel-title {
+  font-size: 1.2rem;
+}
+
+.panel-subtitle {
+  margin: 0.25rem 0 0;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.workspace-main,
+.panel-grid,
+.stack-list,
+.artifact-tree ul {
+  display: grid;
+  gap: 1rem;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.status-card,
+.stack-card,
+.history-item,
+.tool-drawer,
+.artifact-tree,
+.error-banner {
+  border-radius: 16px;
+  border: 1px solid rgba(71, 85, 68, 0.14);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.status-card,
+.stack-card,
+.tool-drawer,
+.error-banner {
+  padding: 0.9rem 1rem;
+}
+
+.status-card p,
+.stack-card p,
+.empty-copy {
+  margin: 0.4rem 0 0;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.field textarea,
+.field input,
+.field select,
+.history-filters select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(71, 85, 68, 0.22);
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.field textarea {
+  min-height: 180px;
+  resize: vertical;
+  grid-column: 1 / -1;
+}
+
+.primary-button,
+.ghost-button,
+.history-item,
+.tab {
+  cursor: pointer;
+}
+
+.primary-button,
+.ghost-button,
+.tab {
+  min-height: 42px;
+  border-radius: 999px;
+  padding: 0.65rem 1rem;
+}
+
+.primary-button {
+  border: none;
+  color: #fffdf8;
+  background: linear-gradient(135deg, #6f7f54, #4d5a3c);
+}
+
+.ghost-button,
+.tab {
+  border: 1px solid rgba(71, 85, 68, 0.2);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.tabbar {
+  flex-wrap: wrap;
+}
+
+.tab.active {
+  background: #2f3b28;
+  color: #f6f2e8;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.pill-ok {
+  background: #dbead4;
+  color: #235028;
+}
+
+.pill-bad {
+  background: #f5d7d7;
+  color: #852727;
+}
+
+.pill-warn {
+  background: #f1e4bf;
+  color: #7c5a10;
+}
+
+.pill-run {
+  background: #d2e2f4;
+  color: #23548a;
+}
+
+.pill-idle {
+  background: #ebe7df;
+  color: #5c564b;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.detail-label {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.workflow-actions {
+  margin-top: 1rem;
+}
+
+.json-preview,
+.log-tail {
+  margin: 0.4rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+  font-size: 0.83rem;
+}
+
+.log-tail {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.history-panel {
+  padding: 1rem 1.1rem;
+}
+
+.history-list {
+  display: grid;
+  gap: 0.55rem;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.history-item {
+  width: 100%;
+  text-align: left;
+  padding: 0.8rem 0.9rem;
+}
+
+.history-item.selected {
+  border-color: #60724d;
+  background: rgba(228, 235, 218, 0.92);
+}
+
+.history-right {
+  display: grid;
+  justify-items: end;
+  gap: 0.35rem;
+}
+
+.history-kind {
+  margin: 0;
+  font-weight: 600;
+}
+
+.tool-drawer {
+  position: sticky;
+  top: 1.25rem;
+  height: fit-content;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.65rem 0.55rem;
+  border-bottom: 1px solid rgba(71, 85, 68, 0.12);
+  text-align: left;
+}
+
+.artifact-tree {
+  padding: 0.8rem 1rem;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.artifact-tree ul {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.artifact-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.2rem 0;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 1rem;
+}
+
+.image-grid img {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(71, 85, 68, 0.14);
+  background: #f5f0e6;
+}
+
+.error-banner {
+  color: #8b2222;
+}
+
+@media (max-width: 1180px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tool-drawer {
+    position: static;
+  }
+}

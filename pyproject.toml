@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "Apache-2.0" }
 dependencies = [
+  "fastapi>=0.115",
   "matplotlib>=3.9",
   "numpy>=2.1",
   "pandas>=2.2",
@@ -17,6 +18,7 @@ dependencies = [
   "pydantic>=2.10",
   "scipy>=1.14",
   "tqdm>=4.67",
+  "uvicorn>=0.34",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +26,7 @@ cu128 = [
   "torch>=2.5",
 ]
 dev = [
+  "httpx>=0.28",
   "pytest>=8.3",
 ]
 hf_qwen = [
