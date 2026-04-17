@@ -1074,6 +1074,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+cpu = [
+    { name = "torch" },
+]
 cu128 = [
     { name = "torch" },
 ]
@@ -1105,11 +1108,12 @@ requires-dist = [
     { name = "safetensors", marker = "extra == 'hf-qwen'", specifier = ">=0.5" },
     { name = "scipy", specifier = ">=1.14" },
     { name = "sentencepiece", marker = "extra == 'hf-qwen'", specifier = ">=0.2" },
+    { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.5" },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.5", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "turboquant-qwen35", extra = "cu128" } },
     { name = "tqdm", specifier = ">=4.67" },
     { name = "transformers", marker = "extra == 'hf-qwen'", specifier = ">=4.52" },
 ]
-provides-extras = ["cu128", "dev", "hf-qwen", "multiscreen-parity"]
+provides-extras = ["cpu", "cu128", "dev", "hf-qwen", "multiscreen-parity"]
 
 [[package]]
 name = "typer"

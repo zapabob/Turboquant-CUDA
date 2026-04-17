@@ -17,6 +17,8 @@ from turboquant.schema import (
     ARTIFACT_METADATA_SCHEMA_VERSION,
     PAPER_SCHEMA_KIND,
     RESEARCH_SCHEMA_KIND,
+    build_turboquant_gguf_contract,
+    build_uniform_turboquant_gguf_contract,
     build_turboquant_artifact_metadata,
     build_paper_turboquant_config,
     build_research_turboquant_config,
@@ -128,3 +130,43 @@ def test_artifact_metadata_explicitly_separates_total_and_stage1_bits() -> None:
     assert metadata["tq_runtime_bits_per_channel"] == 3.25
     assert metadata["tq_triality_mode"] == "triality_proxy"
     assert metadata["tq_stage1_allocation_scheme"] == "magnitude-topk"
+
+
+def test_build_turboquant_gguf_contract_uses_strict_tq_arrays() -> None:
+    metadata = build_turboquant_artifact_metadata(
+        total_bits=3.5,
+        qjl_bits=1,
+        qjl_dim=128,
+        rotation_policy="block_so8_learned",
+        rotation_seed=17,
+        qjl_seed=71,
+        triality_mode="triality_proxy",
+        triality_view="vector",
+        width=128,
+        allocation=ChannelBitAllocation.preset(effective_bits=2.5, width=128),
+    )
+    contract = build_turboquant_gguf_contract([metadata, metadata])
+    assert contract["tq_schema_version"] == ARTIFACT_METADATA_SCHEMA_VERSION
+    assert contract["tq_total_bits"] == [3.5, 3.5]
+    assert contract["tq_runtime_bits_per_channel"] == [3.25, 3.25]
+    assert contract["tq_triality_mode"] == ["triality_proxy", "triality_proxy"]
+    assert contract["tq_triality_view"] == ["vector", "vector"]
+
+
+def test_build_uniform_turboquant_gguf_contract_expands_one_layer_payload() -> None:
+    metadata = build_turboquant_artifact_metadata(
+        total_bits=3.5,
+        qjl_bits=1,
+        qjl_dim=128,
+        rotation_policy="block_so8_learned",
+        rotation_seed=17,
+        qjl_seed=71,
+        triality_mode="triality_proxy",
+        triality_view="vector",
+        width=128,
+        allocation=ChannelBitAllocation.preset(effective_bits=2.5, width=128),
+    )
+    contract = build_uniform_turboquant_gguf_contract(artifact_metadata=metadata, num_layers=3)
+    assert contract["tq_qjl_bits"] == [1, 1, 1]
+    assert contract["tq_rotation_seed"] == [17, 17, 17]
+    assert contract["tq_sign_pack_format"] == ["int8_unpacked_binary"] * 3

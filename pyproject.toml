@@ -20,6 +20,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cpu = [
+  "torch>=2.5",
+]
 cu128 = [
   "torch>=2.5",
 ]
