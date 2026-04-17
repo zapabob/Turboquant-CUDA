@@ -23,6 +23,26 @@ PAPER_MODE_NAMES = ("exact", "key_only_random", "full_kv")
 DEFAULT_SIGN_PACK_FORMAT = "int8_unpacked_binary"
 DEFAULT_BITWIDTH_PAYLOAD_DTYPE = "uint8"
 TURBOQUANT_REFERENCE_PAPER_URL = "https://arxiv.org/abs/2504.19874"
+TURBOQUANT_GGUF_FLOAT_KEYS = (
+    "tq_total_bits",
+    "tq_runtime_bits_per_channel",
+    "tq_stage1_effective_bits",
+)
+TURBOQUANT_GGUF_U32_KEYS = (
+    "tq_qjl_bits",
+    "tq_qjl_dim",
+    "tq_rotation_seed",
+    "tq_qjl_seed",
+)
+TURBOQUANT_GGUF_STRING_KEYS = (
+    "tq_rotation_policy",
+    "tq_triality_mode",
+    "tq_triality_view",
+    "tq_stage1_allocation_scheme",
+    "tq_stage1_bitwidth_payload_dtype",
+    "tq_norm_dtype",
+    "tq_sign_pack_format",
+)
 
 
 def _require(mapping: dict[str, Any], keys: tuple[str, ...], *, context: str) -> None:
@@ -420,6 +440,88 @@ def validate_turboquant_artifact_metadata(payload: dict[str, Any]) -> None:
         )
 
 
+def build_turboquant_gguf_contract(layer_metadata: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the canonical top-level GGUF `tq_*` contract from per-layer artifact metadata."""
+
+    if not layer_metadata:
+        raise ValueError("layer_metadata must contain at least one per-layer metadata payload")
+
+    normalized: list[dict[str, Any]] = []
+    schema_version: int | None = None
+    for index, metadata in enumerate(layer_metadata):
+        validate_turboquant_artifact_metadata(metadata)
+        current_schema_version = int(metadata["tq_schema_version"])
+        if schema_version is None:
+            schema_version = current_schema_version
+        elif current_schema_version != schema_version:
+            raise ValueError(
+                "All per-layer artifact metadata must agree on tq_schema_version; "
+                f"layer 0 has {schema_version}, layer {index} has {current_schema_version}"
+            )
+        normalized.append(metadata)
+
+    assert schema_version is not None
+    payload: dict[str, Any] = {
+        "tq_schema_version": schema_version,
+    }
+    for key in TURBOQUANT_GGUF_FLOAT_KEYS:
+        payload[key] = [float(metadata[key]) for metadata in normalized]
+    for key in TURBOQUANT_GGUF_U32_KEYS:
+        payload[key] = [int(metadata[key]) for metadata in normalized]
+    for key in TURBOQUANT_GGUF_STRING_KEYS:
+        payload[key] = [str(metadata[key]) for metadata in normalized]
+
+    validate_turboquant_gguf_contract(payload, expected_len=len(normalized))
+    return payload
+
+
+def build_uniform_turboquant_gguf_contract(*, artifact_metadata: dict[str, Any], num_layers: int) -> dict[str, Any]:
+    """Expand one artifact metadata payload across `num_layers` for fixture-style GGUF exports."""
+
+    if num_layers <= 0:
+        raise ValueError(f"num_layers must be positive, got {num_layers}")
+    validate_turboquant_artifact_metadata(artifact_metadata)
+    return build_turboquant_gguf_contract([artifact_metadata.copy() for _ in range(num_layers)])
+
+
+def validate_turboquant_gguf_contract(payload: dict[str, Any], *, expected_len: int | None = None) -> None:
+    """Validate the canonical top-level GGUF `tq_*` contract."""
+
+    _require(
+        payload,
+        ("tq_schema_version", *TURBOQUANT_GGUF_FLOAT_KEYS, *TURBOQUANT_GGUF_U32_KEYS, *TURBOQUANT_GGUF_STRING_KEYS),
+        context="turboquant gguf contract",
+    )
+
+    schema_version = int(payload["tq_schema_version"])
+    if schema_version <= 0:
+        raise ValueError(f"tq_schema_version must be positive, got {schema_version}")
+
+    lengths: set[int] = set()
+    for key in (*TURBOQUANT_GGUF_FLOAT_KEYS, *TURBOQUANT_GGUF_U32_KEYS, *TURBOQUANT_GGUF_STRING_KEYS):
+        values = payload[key]
+        if not isinstance(values, list):
+            raise ValueError(f"GGUF contract key {key!r} must be a list")
+        lengths.add(len(values))
+
+    if not lengths or 0 in lengths or len(lengths) != 1:
+        raise ValueError("All GGUF contract arrays must share the same positive length")
+
+    array_len = next(iter(lengths))
+    if expected_len is not None and array_len != expected_len:
+        raise ValueError(f"GGUF contract arrays must have length {expected_len}, got {array_len}")
+
+    for index in range(array_len):
+        validate_turboquant_artifact_metadata(
+            {
+                "tq_schema_version": schema_version,
+                **{key: float(payload[key][index]) for key in TURBOQUANT_GGUF_FLOAT_KEYS},
+                **{key: int(payload[key][index]) for key in TURBOQUANT_GGUF_U32_KEYS},
+                **{key: str(payload[key][index]) for key in TURBOQUANT_GGUF_STRING_KEYS},
+            }
+        )
+
+
 def read_turboquant_config(path: Path, *, expected_kind: str | None = None) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     kind = payload.get("schema_kind")
@@ -454,11 +556,17 @@ __all__ = [
     "RESEARCH_SCHEMA_KIND",
     "SCHEMA_VERSION",
     "TURBOQUANT_REFERENCE_PAPER_URL",
+    "TURBOQUANT_GGUF_FLOAT_KEYS",
+    "TURBOQUANT_GGUF_STRING_KEYS",
+    "TURBOQUANT_GGUF_U32_KEYS",
+    "build_turboquant_gguf_contract",
+    "build_uniform_turboquant_gguf_contract",
     "build_capture_quantization_config",
     "build_turboquant_artifact_metadata",
     "build_paper_turboquant_config",
     "build_research_turboquant_config",
     "read_turboquant_config",
+    "validate_turboquant_gguf_contract",
     "validate_capture_quantization_config",
     "validate_turboquant_artifact_metadata",
     "validate_paper_turboquant_config",

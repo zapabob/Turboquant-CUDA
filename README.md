@@ -91,6 +91,7 @@ Rules:
 - `.gitmodules` must keep `vendor/llama.cpp` pinned to `https://github.com/zapabob/llama.cpp.git`.
 - Rust / Hypura builds must use the vendored `vendor/llama.cpp`, or `LLAMA_CPP_DIR` / `HYPURA_LLAMA_CPP_DIR` must point to a **zapabob/llama.cpp-compatible** checkout.
 - A zapabob-compatible checkout is validated by the presence of the TurboQuant runtime files `src/llama-turboquant.h` and `src/llama-turboquant.cpp` plus the expected TurboQuant / triality symbols.
+- Canonical GGUF export contract is the strict top-level `tq_*` metadata arrays consumed by current `llama.cpp` / Hypura loaders; legacy `hypura.turboquant.*` keys remain compatibility bridge metadata only.
 - Repo-level consistency is checked by `repo_contract.toml` and `scripts\validate_repo_contract.py`.
 
 Validation:
