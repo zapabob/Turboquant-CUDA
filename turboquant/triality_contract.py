@@ -16,6 +16,7 @@ TrialityPublicMode = Literal["paper-faithful", "triality-proxy-so8-pareto", "tri
 TRIALITY_GGUF_SCHEMA_VERSION = 1
 TRIALITY_GGUF_PAYLOAD_FORMAT = "json-inline-v1"
 TRIALITY_GGUF_NAMESPACE = "hypura.turboquant"
+TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES = ("bf16", "f16", "q8_0")
 TRIALITY_ALLOWED_MODES: tuple[TrialityPublicMode, ...] = (
     "paper-faithful",
     TRIALITY_PROXY_PARETO_MODE,
@@ -34,7 +35,17 @@ TRIALITY_REQUIRED_KEYS = (
     "hypura.turboquant.v_bits",
     "hypura.turboquant.payload_format",
     "hypura.turboquant.payload_bytes",
+    "hypura.turboquant.weight.enabled",
+    "hypura.turboquant.weight.source_ftype",
+    "hypura.turboquant.weight.policy",
+    "hypura.turboquant.weight.protected_roles",
+    "hypura.turboquant.weight.protected_layers",
+    "hypura.turboquant.weight.modality_scope",
+    "hypura.turboquant.weight.payload_format",
+    "hypura.turboquant.weight.payload_bytes",
 )
+
+TRIALITY_FIXTURE_MANIFEST_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +59,174 @@ class TrialityModeSpec:
     paper_fidelity: bool
     k_bits: float
     v_bits: float
+
+
+def normalize_model_family(model_family: str) -> str:
+    return model_family.strip().lower().replace("\\", "/")
+
+
+def expected_modalities(
+    *,
+    model_family: str,
+    modality_scope: str | None = None,
+) -> list[str]:
+    normalized_family = normalize_model_family(model_family)
+    resolved_scope = (modality_scope or "").strip().lower()
+    if resolved_scope == "full-multimodal" or (
+        "gemma" in normalized_family and "e4b" in normalized_family
+    ):
+        return ["text", "image", "audio"]
+    return ["text"]
+
+
+def build_sample_env(
+    *,
+    model_family: str,
+    modality_scope: str | None = None,
+) -> dict[str, str]:
+    modalities = expected_modalities(
+        model_family=model_family,
+        modality_scope=modality_scope,
+    )
+    normalized_family = normalize_model_family(model_family)
+    if modalities == ["text"] and "qwen" in normalized_family:
+        return {
+            "text_model": "TRIALITY_QWEN_SMOKE_MODEL",
+        }
+    if modalities != ["text"] and "gemma" in normalized_family:
+        return {
+            "text_model": "TRIALITY_GEMMA_SMOKE_MODEL",
+            "mmproj_model": "TRIALITY_GEMMA_MMPROJ_MODEL",
+            "image": "TRIALITY_GEMMA_IMAGE_SAMPLE",
+            "audio": "TRIALITY_GEMMA_AUDIO_SAMPLE",
+        }
+    return {
+        "text_model": "TRIALITY_SMOKE_MODEL",
+    }
+
+
+def build_triality_fixture_manifest(
+    *,
+    mode: str,
+    model_family: str,
+    source_ftype: str,
+    generated_at_utc: str,
+    payload_path: str,
+    metadata_path: str,
+    metrics_path: str,
+    text_model_path: str,
+    payload_hash: str,
+    metadata_hash: str,
+    modality_scope: str | None = None,
+    mmproj_model_path: str | None = None,
+) -> dict[str, Any]:
+    modalities = expected_modalities(
+        model_family=model_family,
+        modality_scope=modality_scope,
+    )
+    mmproj_required = len(modalities) > 1
+    if mmproj_required and not mmproj_model_path:
+        raise ValueError(
+            "mmproj_model_path is required for full-multimodal Triality fixture manifests"
+        )
+
+    paths: dict[str, str | None] = {
+        "payload": payload_path,
+        "metadata": metadata_path,
+        "offline_metrics": metrics_path,
+        "gguf": text_model_path,
+        "text_model": text_model_path,
+        "mmproj_model": mmproj_model_path,
+    }
+
+    return {
+        "schema_version": TRIALITY_FIXTURE_MANIFEST_VERSION,
+        "fixture_kind": "triality-fixture-bundle",
+        "mode": resolve_triality_mode_spec(mode).mode,
+        "model_family": model_family,
+        "source_ftype": source_ftype,
+        "generated_at_utc": generated_at_utc,
+        "text_model_path": text_model_path,
+        "mmproj_model_path": mmproj_model_path,
+        "mmproj_required": mmproj_required,
+        "modalities": modalities,
+        "sample_env": build_sample_env(
+            model_family=model_family,
+            modality_scope=modality_scope,
+        ),
+        "paths": paths,
+        "hashes": {
+            "payload_sha256": payload_hash,
+            "metadata_sha256": metadata_hash,
+        },
+    }
+
+
+def _boundary_layers(num_layers: int) -> list[int]:
+    if num_layers <= 0:
+        return []
+    layers = {0, min(1, num_layers - 1), max(0, num_layers - 2), num_layers - 1}
+    return sorted(layers)
+
+
+def build_default_weight_plan(
+    *,
+    model_family: str,
+    num_layers: int,
+    source_ftype: str = "q8_0",
+    policy: str | None = None,
+    protected_roles: list[str] | None = None,
+    protected_layers: list[int] | None = None,
+    modality_scope: str | None = None,
+) -> dict[str, Any]:
+    normalized_family = normalize_model_family(model_family)
+    normalized_source_ftype = source_ftype.strip().lower()
+    if normalized_source_ftype not in TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES:
+        raise ValueError(
+            "Unsupported weight source_ftype "
+            f"{source_ftype!r}; expected one of {', '.join(TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES)}"
+        )
+
+    if "qwen" in normalized_family and "3.5-9b" in normalized_family:
+        resolved_policy = policy or "qwen35-full-attention-ffn"
+        resolved_roles = protected_roles or [
+            "embedding",
+            "norm",
+            "output_head",
+            "recurrent_state",
+        ]
+        resolved_modality_scope = modality_scope or "text-only"
+    elif "gemma" in normalized_family and "e4b" in normalized_family:
+        resolved_policy = policy or "gemma4-e4b-shared-decoder-hybrid"
+        resolved_roles = protected_roles or [
+            "vision_encoder",
+            "audio_encoder",
+            "projector",
+            "per_layer_multimodal_embedding",
+            "embedding",
+            "norm",
+            "output_head",
+        ]
+        resolved_modality_scope = modality_scope or "full-multimodal"
+    else:
+        resolved_policy = policy or "shared-decoder-role-aware"
+        resolved_roles = protected_roles or [
+            "embedding",
+            "norm",
+            "output_head",
+        ]
+        resolved_modality_scope = modality_scope or "text-only"
+
+    resolved_layers = protected_layers or _boundary_layers(num_layers)
+    return {
+        "enabled": True,
+        "model_family": model_family,
+        "source_ftype": normalized_source_ftype,
+        "policy": resolved_policy,
+        "protected_roles": list(resolved_roles),
+        "protected_layers": [int(layer) for layer in resolved_layers],
+        "modality_scope": resolved_modality_scope,
+    }
 
 
 def resolve_triality_mode_spec(mode: str) -> TrialityModeSpec:
@@ -86,6 +265,12 @@ def build_triality_payload(
     head_dim: int,
     num_layers: int,
     num_kv_heads: int,
+    model_family: str = "generic",
+    weight_source_ftype: str = "q8_0",
+    weight_policy: str | None = None,
+    weight_protected_roles: list[str] | None = None,
+    weight_protected_layers: list[int] | None = None,
+    modality_scope: str | None = None,
     rotation_seed: int | None = None,
     source_manifest: dict[str, Any] | None = None,
     offline_metrics: dict[str, Any] | None = None,
@@ -104,6 +289,7 @@ def build_triality_payload(
         "schema_kind": "triality_gguf_payload",
         "schema_version": TRIALITY_GGUF_SCHEMA_VERSION,
         "mode": spec.mode,
+        "model_family": model_family,
         "runtime_mode": spec.runtime_mode,
         "head_dim": int(head_dim),
         "num_layers": int(num_layers),
@@ -116,6 +302,15 @@ def build_triality_payload(
         "k_bits": float(spec.k_bits),
         "v_bits": float(spec.v_bits),
         "offline_metrics": offline_metrics or {},
+        "weight_plan": build_default_weight_plan(
+            model_family=model_family,
+            num_layers=num_layers,
+            source_ftype=weight_source_ftype,
+            policy=weight_policy,
+            protected_roles=weight_protected_roles,
+            protected_layers=weight_protected_layers,
+            modality_scope=modality_scope,
+        ),
     }
 
     if spec.paper_fidelity:
@@ -148,6 +343,7 @@ def build_triality_metadata(
     *,
     mode: str,
     payload_json: str,
+    weight_plan: dict[str, Any] | None = None,
     rotation_policy: str | None = None,
     rotation_seed: int | None = None,
     triality_view: str | None = None,
@@ -184,6 +380,32 @@ def build_triality_metadata(
     if source_profile:
         metadata["hypura.turboquant.source_profile"] = source_profile
 
+    if weight_plan is not None:
+        weight_payload_json = payload_json_dumps(weight_plan)
+        metadata.update(
+            {
+                "hypura.turboquant.weight.enabled": bool(weight_plan.get("enabled", True)),
+                "hypura.turboquant.weight.source_ftype": str(weight_plan["source_ftype"]),
+                "hypura.turboquant.weight.policy": str(weight_plan["policy"]),
+                "hypura.turboquant.weight.protected_roles": json.dumps(
+                    list(weight_plan.get("protected_roles", [])),
+                    separators=(",", ":"),
+                ),
+                "hypura.turboquant.weight.protected_layers": json.dumps(
+                    [int(v) for v in weight_plan.get("protected_layers", [])],
+                    separators=(",", ":"),
+                ),
+                "hypura.turboquant.weight.modality_scope": str(
+                    weight_plan.get("modality_scope", "text-only")
+                ),
+                "hypura.turboquant.weight.payload_format": TRIALITY_GGUF_PAYLOAD_FORMAT,
+                "hypura.turboquant.weight.payload_bytes": len(
+                    weight_payload_json.encode("utf-8")
+                ),
+                "hypura.turboquant.weight.payload_json": weight_payload_json,
+            }
+        )
+
     validate_triality_metadata(metadata)
     return metadata
 
@@ -196,6 +418,18 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
             f"payload schema_version must be {TRIALITY_GGUF_SCHEMA_VERSION}, got {payload.get('schema_version')!r}"
         )
     resolve_triality_mode_spec(str(payload.get("mode")))
+    weight_plan = payload.get("weight_plan")
+    if not isinstance(weight_plan, dict):
+        raise ValueError("payload must include a weight_plan object")
+    build_default_weight_plan(
+        model_family=str(weight_plan.get("model_family", payload.get("model_family", "generic"))),
+        num_layers=int(payload.get("num_layers", 0)),
+        source_ftype=str(weight_plan.get("source_ftype", "q8_0")),
+        policy=str(weight_plan.get("policy")) if weight_plan.get("policy") is not None else None,
+        protected_roles=list(weight_plan.get("protected_roles", [])),
+        protected_layers=[int(v) for v in weight_plan.get("protected_layers", [])],
+        modality_scope=str(weight_plan.get("modality_scope")) if weight_plan.get("modality_scope") is not None else None,
+    )
 
 
 def validate_triality_metadata(metadata: dict[str, Any]) -> None:
@@ -228,6 +462,35 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
                 f"{payload_bytes} != {actual}"
             )
 
+    weight_enabled = bool(metadata["hypura.turboquant.weight.enabled"])
+    weight_source_ftype = str(metadata["hypura.turboquant.weight.source_ftype"]).strip().lower()
+    if weight_enabled and weight_source_ftype not in TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES:
+        raise ValueError(
+            "Unsupported hypura.turboquant.weight.source_ftype "
+            f"{weight_source_ftype!r}; expected one of {', '.join(TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES)}"
+        )
+
+    for key in (
+        "hypura.turboquant.weight.protected_roles",
+        "hypura.turboquant.weight.protected_layers",
+    ):
+        try:
+            parsed = json.loads(str(metadata[key]))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{key} must be JSON-encoded") from exc
+        if not isinstance(parsed, list):
+            raise ValueError(f"{key} must decode to a list")
+
+    weight_payload_json = metadata.get("hypura.turboquant.weight.payload_json")
+    weight_payload_bytes = int(metadata["hypura.turboquant.weight.payload_bytes"])
+    if weight_payload_json is not None:
+        actual = len(str(weight_payload_json).encode("utf-8"))
+        if actual != weight_payload_bytes:
+            raise ValueError(
+                "hypura.turboquant.weight.payload_bytes does not match payload_json length: "
+                f"{weight_payload_bytes} != {actual}"
+            )
+
     paper_fidelity = bool(metadata["hypura.turboquant.paper_fidelity"])
     if paper_fidelity != spec.paper_fidelity:
         raise ValueError(
@@ -237,6 +500,7 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
 
 __all__ = [
     "TRIALITY_ALLOWED_MODES",
+    "TRIALITY_FIXTURE_MANIFEST_VERSION",
     "TRIALITY_GGUF_NAMESPACE",
     "TRIALITY_GGUF_PAYLOAD_FORMAT",
     "TRIALITY_GGUF_SCHEMA_VERSION",
@@ -244,10 +508,16 @@ __all__ = [
     "TRIALITY_PROXY_PARETO_MODE",
     "TRIALITY_REQUIRED_KEYS",
     "TrialityModeSpec",
+    "build_sample_env",
+    "build_triality_fixture_manifest",
     "build_triality_metadata",
     "build_triality_payload",
+    "build_default_weight_plan",
+    "expected_modalities",
+    "normalize_model_family",
     "payload_json_dumps",
     "resolve_triality_mode_spec",
     "validate_triality_metadata",
     "validate_triality_payload",
+    "TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES",
 ]

@@ -12,8 +12,11 @@ if str(REPO_ROOT) not in sys.path:
 from turboquant.io_utils import ensure_dir, stable_hash, write_json
 from turboquant.triality_contract import (
     TRIALITY_ALLOWED_MODES,
+    TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES,
+    build_triality_fixture_manifest,
     build_triality_metadata,
     build_triality_payload,
+    expected_modalities,
     payload_json_dumps,
 )
 
@@ -58,20 +61,20 @@ def write_fixture_gguf(
     head_dim: int,
     num_layers: int,
     num_kv_heads: int,
+    architecture: str = "llama",
+    tensor_name: str = "blk.0.attn_q.weight",
 ) -> None:
     buffer = bytearray()
     full_metadata = {
-        "general.architecture": "llama",
-        "llama.block_count": num_layers,
-        "llama.embedding_length": head_dim * num_kv_heads,
-        "llama.attention.head_count": num_kv_heads,
-        "llama.attention.head_count_kv": num_kv_heads,
-        "llama.vocab_size": 32000,
-        "llama.context_length": 4096,
+        "general.architecture": architecture,
+        f"{architecture}.block_count": num_layers,
+        f"{architecture}.embedding_length": head_dim * num_kv_heads,
+        f"{architecture}.attention.head_count": num_kv_heads,
+        f"{architecture}.attention.head_count_kv": num_kv_heads,
+        f"{architecture}.vocab_size": 32000,
+        f"{architecture}.context_length": 4096,
         **metadata,
     }
-
-    tensor_name = "blk.0.attn_q.weight"
     tensor_dims = (head_dim, head_dim)
     tensor_dtype = 0  # F32
     tensor_offset = 0
@@ -109,6 +112,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--head-dim", type=int, default=128)
     parser.add_argument("--num-layers", type=int, default=2)
     parser.add_argument("--num-kv-heads", type=int, default=8)
+    parser.add_argument(
+        "--model-family",
+        default="huihui-ai/Huihui-Qwen3.5-9B-Claude-4.6-Opus-abliterated",
+    )
+    parser.add_argument(
+        "--source-ftype",
+        choices=TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES,
+        default="q8_0",
+    )
+    parser.add_argument("--modality-scope", default=None)
     return parser.parse_args()
 
 
@@ -132,6 +145,9 @@ def main() -> int:
         head_dim=args.head_dim,
         num_layers=args.num_layers,
         num_kv_heads=args.num_kv_heads,
+        model_family=args.model_family,
+        weight_source_ftype=args.source_ftype,
+        modality_scope=args.modality_scope,
         source_manifest=source_manifest,
         offline_metrics=offline_metrics,
     )
@@ -139,40 +155,59 @@ def main() -> int:
     metadata = build_triality_metadata(
         mode=args.mode,
         payload_json=payload_json,
+        weight_plan=payload["weight_plan"],
     )
 
     payload_path = bundle_dir / "triality-payload.json"
     metadata_path = bundle_dir / "triality-contract-metadata.json"
     metrics_path = bundle_dir / "triality-offline-metrics.json"
     manifest_path = bundle_dir / "triality-fixture-manifest.json"
-    gguf_path = bundle_dir / "triality-fixture.gguf"
+    text_gguf_path = bundle_dir / "triality-fixture.gguf"
+    modalities = expected_modalities(
+        model_family=args.model_family,
+        modality_scope=args.modality_scope,
+    )
+    mmproj_required = len(modalities) > 1
+    mmproj_path = bundle_dir / "mmproj-triality-fixture.gguf" if mmproj_required else None
 
     write_json(payload_path, payload)
     write_json(metadata_path, metadata)
     write_json(metrics_path, offline_metrics)
     write_fixture_gguf(
-        path=gguf_path,
+        path=text_gguf_path,
         metadata=metadata,
         head_dim=args.head_dim,
         num_layers=args.num_layers,
         num_kv_heads=args.num_kv_heads,
     )
-    manifest = {
-        "schema_version": 1,
-        "fixture_kind": "triality-fixture-bundle",
-        "mode": args.mode,
-        "generated_at_utc": source_manifest["generated_at_utc"],
-        "paths": {
-            "payload": payload_path.name,
-            "metadata": metadata_path.name,
-            "offline_metrics": metrics_path.name,
-            "gguf": gguf_path.name,
-        },
-        "hashes": {
-            "payload_sha256": stable_hash(payload_json),
-            "metadata_sha256": stable_hash(metadata_path.read_text(encoding="utf-8")),
-        },
-    }
+    if mmproj_path is not None:
+        write_fixture_gguf(
+            path=mmproj_path,
+            metadata={
+                "mmproj.required": True,
+                "mmproj.modalities": ",".join(modalities),
+            },
+            head_dim=max(args.head_dim, 128),
+            num_layers=1,
+            num_kv_heads=1,
+            architecture="mmproj",
+            tensor_name="mmproj.proj.weight",
+        )
+
+    manifest = build_triality_fixture_manifest(
+        mode=args.mode,
+        model_family=args.model_family,
+        source_ftype=args.source_ftype,
+        generated_at_utc=source_manifest["generated_at_utc"],
+        payload_path=payload_path.name,
+        metadata_path=metadata_path.name,
+        metrics_path=metrics_path.name,
+        text_model_path=text_gguf_path.name,
+        mmproj_model_path=mmproj_path.name if mmproj_path is not None else None,
+        payload_hash=stable_hash(payload_json),
+        metadata_hash=stable_hash(metadata_path.read_text(encoding="utf-8")),
+        modality_scope=payload["weight_plan"].get("modality_scope"),
+    )
     write_json(manifest_path, manifest)
 
     print(f"fixture_dir={bundle_dir}")
