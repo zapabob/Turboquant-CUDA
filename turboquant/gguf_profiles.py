@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
 import importlib
 import json
 import os
@@ -381,7 +382,7 @@ def package_turboquant_gguf(
     arch = _require_source_architecture(reader)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = gguf.GGUFWriter(output_path, arch=arch, use_temp_file=True, endianess=reader.endianess)
+    writer = gguf.GGUFWriter(output_path, arch=arch, use_temp_file=False, endianess=reader.endianess)
     _copy_source_kv_metadata(reader=reader, writer=writer, gguf=gguf)
     packaged_at_utc = datetime.now(timezone.utc).isoformat()
     _write_top_level_manifest(
@@ -409,16 +410,13 @@ def package_turboquant_gguf(
 
     for tensor in reader.tensors:
         tensor_array = np.array(tensor.data, copy=False)
-        tensor_kwargs: dict[str, Any] = {
-            "raw_dtype": tensor.tensor_type,
-            "tensor_endianess": reader.endianess,
-        }
-        if tensor_array.dtype != np.uint8:
-            tensor_kwargs["raw_shape"] = tuple(int(value) for value in tensor.shape.tolist())
-        writer.add_tensor(
+        tensor_shape = tuple(int(value) for value in tensor_array.shape)
+        writer.add_tensor_info(
             name=tensor.name,
-            tensor=tensor_array,
-            **tensor_kwargs,
+            tensor_shape=tensor_shape,
+            tensor_dtype=tensor_array.dtype,
+            tensor_nbytes=tensor_array.nbytes,
+            raw_dtype=tensor.tensor_type,
         )
     for profile in profiles:
         for tensor in profile.tensors:
@@ -426,7 +424,14 @@ def package_turboquant_gguf(
 
     writer.write_header_to_file()
     writer.write_kv_data_to_file()
-    writer.write_tensors_to_file()
+    writer.write_ti_data_to_file()
+    for tensor in reader.tensors:
+        tensor_array = np.array(tensor.data, copy=False)
+        writer.write_tensor_data(tensor_array, tensor_endianess=reader.endianess)
+    for profile in profiles:
+        for tensor in profile.tensors:
+            writer.write_tensor_data(tensor.data)
+    writer.close()
     return read_turboquant_gguf_manifest(output_path)
 
 
@@ -748,6 +753,7 @@ def _write_hypura_bridge_metadata(
     metadata = build_triality_metadata(
         mode=public_mode,
         payload_json=payload_json,
+        weight_plan=payload.get("weight_plan"),
         rotation_policy=bridge.rotation_policy or str(profile.metadata.get("rotation_policy", "")),
         rotation_seed=bridge.rotation_seed,
         triality_view=bridge.triality_view or str(profile.metadata.get("triality_view", "none")),
@@ -859,7 +865,18 @@ def _validate_profile_name(name: str) -> None:
 
 def _triality_rotation_tensor_name(*, profile_name: str, layer_idx: int, bits_total: float) -> str:
     bit_token = str(bits_total).replace(".", "p")
-    return f"{GGUF_TURBOQUANT_NAMESPACE}.profile.{profile_name}.layer_{layer_idx:02d}.bits_{bit_token}.rotation"
+    tensor_name = f"tq.p.{profile_name}.l{layer_idx:02d}.b{bit_token}.rot"
+    if len(tensor_name) <= 63:
+        return tensor_name
+
+    profile_token = hashlib.sha1(profile_name.encode("utf-8")).hexdigest()[:10]
+    tensor_name = f"tq.p.{profile_token}.l{layer_idx:02d}.b{bit_token}.rot"
+    if len(tensor_name) <= 63:
+        return tensor_name
+    raise ValueError(
+        "Embedded TurboQuant tensor name exceeds GGUF length limits even after hashing: "
+        f"{tensor_name!r}"
+    )
 
 
 def _read_required_string(reader: Any, key: str) -> str:

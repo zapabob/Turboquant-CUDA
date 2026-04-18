@@ -156,16 +156,17 @@ def test_package_turboquant_gguf_embeds_profiles_and_preserves_original_tensor(t
     assert manifest.profiles["so8_triality_vector"].metadata["layer_indices"] == [0, 1]
     tensor_names = manifest.profiles["so8_triality_vector"].metadata["artifact_tensor_names"]
     assert tensor_names == [
-        "turboquant.profile.so8_triality_vector.layer_00.bits_3p5.rotation",
-        "turboquant.profile.so8_triality_vector.layer_01.bits_3p5.rotation",
+        "tq.p.so8_triality_vector.l00.b3p5.rot",
+        "tq.p.so8_triality_vector.l01.b3p5.rot",
     ]
+    assert all(len(name) <= 63 for name in tensor_names)
 
     gguf = import_vendor_gguf()
     reader = gguf.GGUFReader(output)
     restored = next(tensor for tensor in reader.tensors if tensor.name == "token_embd.weight")
     np.testing.assert_array_equal(np.array(restored.data, copy=False), original_tensor)
     embedded_rotation = next(
-        tensor for tensor in reader.tensors if tensor.name == "turboquant.profile.so8_triality_vector.layer_01.bits_3p5.rotation"
+        tensor for tensor in reader.tensors if tensor.name == "tq.p.so8_triality_vector.l01.b3p5.rot"
     )
     np.testing.assert_array_equal(np.array(embedded_rotation.data, copy=False), 2.0 * np.eye(8, dtype=np.float32))
 
