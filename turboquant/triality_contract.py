@@ -36,6 +36,7 @@ TRIALITY_REQUIRED_KEYS = (
     "hypura.turboquant.payload_format",
     "hypura.turboquant.payload_bytes",
     "hypura.turboquant.weight.enabled",
+    "hypura.turboquant.weight.codec",
     "hypura.turboquant.weight.source_ftype",
     "hypura.turboquant.weight.policy",
     "hypura.turboquant.weight.protected_roles",
@@ -65,6 +66,35 @@ def normalize_model_family(model_family: str) -> str:
     return model_family.strip().lower().replace("\\", "/")
 
 
+def _is_qwen35_family(model_family: str) -> bool:
+    normalized_family = normalize_model_family(model_family)
+    return "qwen" in normalized_family and "3.5" in normalized_family
+
+
+def _is_gemma4_family(model_family: str) -> bool:
+    normalized_family = normalize_model_family(model_family)
+    return "gemma-4" in normalized_family or ("gemma" in normalized_family and " 4" in normalized_family)
+
+
+def _is_gemma4_multimodal_family(model_family: str) -> bool:
+    if not _is_gemma4_family(model_family):
+        return False
+    normalized_family = normalize_model_family(model_family)
+    return any(tag in normalized_family for tag in ("-e2b", "-e4b", "-a4b"))
+
+
+def _default_tq4_1s_tensor_plan() -> dict[str, str]:
+    return {
+        "blk.*.attn_q.weight": "tq4_1s",
+        "blk.*.attn_k.weight": "tq4_1s",
+        "blk.*.attn_v.weight": "tq4_1s",
+        "blk.*.attn_output.weight": "tq4_1s",
+        "blk.*.ffn_gate.weight": "tq4_1s",
+        "blk.*.ffn_up.weight": "tq4_1s",
+        "blk.*.ffn_down.weight": "q4_k",
+    }
+
+
 def expected_modalities(
     *,
     model_family: str,
@@ -72,9 +102,7 @@ def expected_modalities(
 ) -> list[str]:
     normalized_family = normalize_model_family(model_family)
     resolved_scope = (modality_scope or "").strip().lower()
-    if resolved_scope == "full-multimodal" or (
-        "gemma" in normalized_family and "e4b" in normalized_family
-    ):
+    if resolved_scope == "full-multimodal" or _is_gemma4_multimodal_family(normalized_family):
         return ["text", "image", "audio"]
     return ["text"]
 
@@ -187,8 +215,8 @@ def build_default_weight_plan(
             f"{source_ftype!r}; expected one of {', '.join(TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES)}"
         )
 
-    if "qwen" in normalized_family and "3.5-9b" in normalized_family:
-        resolved_policy = policy or "qwen35-full-attention-ffn"
+    if _is_qwen35_family(normalized_family):
+        resolved_policy = policy or "qwen35-config-i"
         resolved_roles = protected_roles or [
             "embedding",
             "norm",
@@ -196,8 +224,8 @@ def build_default_weight_plan(
             "recurrent_state",
         ]
         resolved_modality_scope = modality_scope or "text-only"
-    elif "gemma" in normalized_family and "e4b" in normalized_family:
-        resolved_policy = policy or "gemma4-e4b-shared-decoder-hybrid"
+    elif _is_gemma4_family(normalized_family):
+        resolved_policy = policy or "gemma4-kv-first-multimodal-safe"
         resolved_roles = protected_roles or [
             "vision_encoder",
             "audio_encoder",
@@ -207,7 +235,9 @@ def build_default_weight_plan(
             "norm",
             "output_head",
         ]
-        resolved_modality_scope = modality_scope or "full-multimodal"
+        resolved_modality_scope = modality_scope or (
+            "full-multimodal" if _is_gemma4_multimodal_family(normalized_family) else "text-only"
+        )
     else:
         resolved_policy = policy or "shared-decoder-role-aware"
         resolved_roles = protected_roles or [
@@ -220,13 +250,42 @@ def build_default_weight_plan(
     resolved_layers = protected_layers or _boundary_layers(num_layers)
     return {
         "enabled": True,
+        "schema": "hypura.turboquant.weight.v1",
+        "codec": "tq4_1s",
         "model_family": model_family,
         "source_ftype": normalized_source_ftype,
         "policy": resolved_policy,
         "protected_roles": list(resolved_roles),
         "protected_layers": [int(layer) for layer in resolved_layers],
         "modality_scope": resolved_modality_scope,
+        "tensor_plan": _default_tq4_1s_tensor_plan(),
     }
+
+
+def validate_weight_plan(
+    weight_plan: dict[str, Any],
+    *,
+    model_family: str,
+    num_layers: int,
+) -> None:
+    expected_weight_plan = build_default_weight_plan(
+        model_family=model_family,
+        num_layers=num_layers,
+        source_ftype=str(weight_plan.get("source_ftype", "q8_0")),
+        policy=str(weight_plan.get("policy")) if weight_plan.get("policy") is not None else None,
+        protected_roles=list(weight_plan.get("protected_roles", [])),
+        protected_layers=[int(v) for v in weight_plan.get("protected_layers", [])],
+        modality_scope=str(weight_plan.get("modality_scope")) if weight_plan.get("modality_scope") is not None else None,
+    )
+    if str(weight_plan.get("schema")) != "hypura.turboquant.weight.v1":
+        raise ValueError("weight_plan.schema must be 'hypura.turboquant.weight.v1'")
+    if str(weight_plan.get("codec")) != "tq4_1s":
+        raise ValueError("weight_plan.codec must be 'tq4_1s'")
+    tensor_plan = weight_plan.get("tensor_plan")
+    if not isinstance(tensor_plan, dict) or not tensor_plan:
+        raise ValueError("weight_plan.tensor_plan must be a non-empty object")
+    if tensor_plan != expected_weight_plan["tensor_plan"]:
+        raise ValueError("weight_plan.tensor_plan does not match the expected Triality TQ4_1S plan")
 
 
 def resolve_triality_mode_spec(mode: str) -> TrialityModeSpec:
@@ -385,6 +444,7 @@ def build_triality_metadata(
         metadata.update(
             {
                 "hypura.turboquant.weight.enabled": bool(weight_plan.get("enabled", True)),
+                "hypura.turboquant.weight.codec": str(weight_plan["codec"]),
                 "hypura.turboquant.weight.source_ftype": str(weight_plan["source_ftype"]),
                 "hypura.turboquant.weight.policy": str(weight_plan["policy"]),
                 "hypura.turboquant.weight.protected_roles": json.dumps(
@@ -421,14 +481,10 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
     weight_plan = payload.get("weight_plan")
     if not isinstance(weight_plan, dict):
         raise ValueError("payload must include a weight_plan object")
-    build_default_weight_plan(
+    validate_weight_plan(
+        weight_plan,
         model_family=str(weight_plan.get("model_family", payload.get("model_family", "generic"))),
         num_layers=int(payload.get("num_layers", 0)),
-        source_ftype=str(weight_plan.get("source_ftype", "q8_0")),
-        policy=str(weight_plan.get("policy")) if weight_plan.get("policy") is not None else None,
-        protected_roles=list(weight_plan.get("protected_roles", [])),
-        protected_layers=[int(v) for v in weight_plan.get("protected_layers", [])],
-        modality_scope=str(weight_plan.get("modality_scope")) if weight_plan.get("modality_scope") is not None else None,
     )
 
 
@@ -463,6 +519,11 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
             )
 
     weight_enabled = bool(metadata["hypura.turboquant.weight.enabled"])
+    weight_codec = str(metadata["hypura.turboquant.weight.codec"]).strip().lower()
+    if weight_enabled and weight_codec != "tq4_1s":
+        raise ValueError(
+            f"Unsupported hypura.turboquant.weight.codec {weight_codec!r}; expected 'tq4_1s'"
+        )
     weight_source_ftype = str(metadata["hypura.turboquant.weight.source_ftype"]).strip().lower()
     if weight_enabled and weight_source_ftype not in TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES:
         raise ValueError(
@@ -490,6 +551,22 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
                 "hypura.turboquant.weight.payload_bytes does not match payload_json length: "
                 f"{weight_payload_bytes} != {actual}"
             )
+        try:
+            parsed_weight_payload = json.loads(str(weight_payload_json))
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "hypura.turboquant.weight.payload_json must be valid JSON"
+            ) from exc
+        if not isinstance(parsed_weight_payload, dict):
+            raise ValueError("hypura.turboquant.weight.payload_json must decode to an object")
+        validate_weight_plan(
+            parsed_weight_payload,
+            model_family=str(parsed_weight_payload.get("model_family", "generic")),
+            num_layers=max(
+                [int(v) for v in parsed_weight_payload.get("protected_layers", [])] + [0]
+            )
+            + 1,
+        )
 
     paper_fidelity = bool(metadata["hypura.turboquant.paper_fidelity"])
     if paper_fidelity != spec.paper_fidelity:
