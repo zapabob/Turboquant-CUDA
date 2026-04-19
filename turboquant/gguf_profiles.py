@@ -33,9 +33,14 @@ from turboquant.schema import (
 from turboquant.triality_contract import (
     TRIALITY_PROXY_PARETO_LEGACY_ALIAS,
     TRIALITY_PROXY_PARETO_MODE,
+    TRIALITY_RUNTIME_MODE,
+    TRIALITY_RUNTIME_MODE_ALIASES,
     build_triality_metadata,
     build_triality_payload,
+    normalize_triality_runtime_mode,
+    normalize_triality_view,
     payload_json_dumps,
+    validate_triality_metadata,
 )
 
 
@@ -318,10 +323,14 @@ def build_so8_triality_vector_gguf_profile(
         "triality_mode": common_metadata["tq_triality_mode"],
         "triality_view": PRODUCTION_K_TURBOQUANT_VIEW,
         "rotation_policy": common_metadata["tq_rotation_policy"],
+        "rotation_block_size": int(common_metadata.get("rotation_block_size", 8)),
         "qjl_bits": int(common_metadata["tq_qjl_bits"]),
         "qjl_dim": int(common_metadata["tq_qjl_dim"]),
         "rotation_seed": int(common_metadata["tq_rotation_seed"]),
         "qjl_seed": int(common_metadata["tq_qjl_seed"]),
+        "orthogonality_error": float(common_metadata.get("orthogonality_error", 0.0)),
+        "determinant_error_max": float(common_metadata.get("determinant_error_max", 0.0)),
+        "view_bundle_complete": bool(common_metadata.get("view_bundle_complete", True)),
         "layer_indices": layer_indices,
         "artifact_tensor_names": tensor_names,
         "strict_gguf_contract": strict_gguf_contract,
@@ -337,12 +346,16 @@ def build_so8_triality_vector_gguf_profile(
             "head_dim": int(head_dim),
             "layer_indices": layer_indices,
             "rotation_policy": str(common_metadata["tq_rotation_policy"]),
+            "rotation_block_size": int(common_metadata.get("rotation_block_size", 8)),
             "rotation_seed": int(common_metadata["tq_rotation_seed"]),
             "qjl_bits": int(common_metadata["tq_qjl_bits"]),
             "qjl_dim": int(common_metadata["tq_qjl_dim"]),
             "qjl_seed": int(common_metadata["tq_qjl_seed"]),
             "triality_mode": str(common_metadata["tq_triality_mode"]),
             "triality_view": PRODUCTION_K_TURBOQUANT_VIEW,
+            "orthogonality_error": float(common_metadata.get("orthogonality_error", 0.0)),
+            "determinant_error_max": float(common_metadata.get("determinant_error_max", 0.0)),
+            "view_bundle_complete": bool(common_metadata.get("view_bundle_complete", True)),
             "artifact_tensor_names": tensor_names,
             **strict_gguf_contract,
         },
@@ -550,7 +563,7 @@ def build_hypura_bridge_config(profile: TurboQuantGGUFProfile) -> HypuraTurboQua
         rotation_seed = int(profile.metadata.get("rotation_seed", 0))
         return HypuraTurboQuantBridgeConfig(
             source_profile=profile.name,
-            mode="research-kv-split",
+            mode=TRIALITY_RUNTIME_MODE,
             rotation_policy="triality_vector",
             triality_view=PRODUCTION_K_TURBOQUANT_VIEW,
             rotation_seed=rotation_seed,
@@ -574,19 +587,20 @@ def read_hypura_gguf_bridge_config(path: Path) -> HypuraTurboQuantBridgeConfig |
     enabled = _read_optional_bool(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.enabled")
     if not enabled:
         return None
-        public_mode = _read_required_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.mode")
+    public_mode = _read_required_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.mode")
     runtime_mode = _read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.runtime_mode")
+    raw_triality_view = _read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_view")
     if runtime_mode is None:
         runtime_mode = {
             "paper-faithful": "paper-key-only",
-            TRIALITY_PROXY_PARETO_MODE: "research-kv-split",
-            TRIALITY_PROXY_PARETO_LEGACY_ALIAS: "research-kv-split",
+            TRIALITY_PROXY_PARETO_MODE: TRIALITY_RUNTIME_MODE,
+            TRIALITY_PROXY_PARETO_LEGACY_ALIAS: TRIALITY_RUNTIME_MODE,
         }.get(public_mode, public_mode)
     return HypuraTurboQuantBridgeConfig(
         source_profile=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.source_profile") or "unknown",
-        mode=runtime_mode,
+        mode=normalize_triality_runtime_mode(runtime_mode),
         rotation_policy=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.rotation_policy"),
-        triality_view=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_view"),
+        triality_view=normalize_triality_view(raw_triality_view) if raw_triality_view is not None else None,
         triality_mix=_read_optional_float(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_mix"),
         rotation_seed=_read_optional_int(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.rotation_seed") or 0,
         artifact_path=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.artifact"),
@@ -609,7 +623,7 @@ def build_hypura_serve_command(
     if context <= 0:
         raise ValueError(f"context must be positive, got {context}")
 
-    supported_modes = {"exact", "paper-key-only", "paper-full-kv", "research-kv-split"}
+    supported_modes = {"exact", "paper-key-only", "paper-full-kv", "research-kv-split", TRIALITY_RUNTIME_MODE}
     if turboquant_mode == "gguf-auto":
         bridge = read_hypura_gguf_bridge_config(gguf_path)
         if bridge is None:
@@ -618,8 +632,8 @@ def build_hypura_serve_command(
                 "--hypura-compatible-profile auto or pass an explicit --turboquant-mode."
             )
         resolved_mode = bridge.mode
-    elif turboquant_mode in supported_modes:
-        resolved_mode = turboquant_mode
+    elif turboquant_mode in supported_modes or turboquant_mode in TRIALITY_RUNTIME_MODE_ALIASES:
+        resolved_mode = normalize_triality_runtime_mode(turboquant_mode)
     else:
         raise ValueError(
             "Unsupported Hypura turboquant_mode. Expected one of "
@@ -765,6 +779,10 @@ def _write_hypura_bridge_metadata(
         runtime_mode=bridge.mode,
         source_profile=bridge.source_profile,
     )
+    metadata["hypura.turboquant.orthogonality_error"] = float(profile.metadata.get("orthogonality_error", 0.0))
+    metadata["hypura.turboquant.determinant_error_max"] = float(profile.metadata.get("determinant_error_max", 0.0))
+    metadata["hypura.turboquant.view_bundle_complete"] = bool(profile.metadata.get("view_bundle_complete", True))
+    validate_triality_metadata(metadata)
 
     for key, value in metadata.items():
         if isinstance(value, bool):

@@ -346,6 +346,8 @@ def test_convert_weight_turboquant_gguf_rewrites_selected_q8_tensors(tmp_path: P
     assert converted.tensor_type == gguf.GGMLQuantizationType.TQ4_1S
     assert protected.tensor_type == gguf.GGMLQuantizationType.Q8_0
     assert int(reader.get_field("general.file_type").contents()) == int(gguf.LlamaFileType.GUESSED)
+    assert str(reader.get_field("hypura.turboquant.codec").contents()) == "tq4_1s"
+    assert int(reader.get_field("hypura.turboquant.rotation_block_size").contents()) == 8
     assert str(reader.get_field("hypura.turboquant.weight.codec").contents()) == "tq4_1s"
 
     weight_payload = json.loads(str(reader.get_field("hypura.turboquant.weight.payload_json").contents()))

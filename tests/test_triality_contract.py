@@ -8,9 +8,13 @@ from pathlib import Path
 import pytest
 
 from turboquant.triality_contract import (
+    TRIALITY_ROTATION_BLOCK_SIZE,
+    TRIALITY_RUNTIME_MODE,
     build_triality_metadata,
     build_triality_payload,
     expected_modalities,
+    normalize_triality_runtime_mode,
+    normalize_triality_view,
 )
 
 
@@ -140,10 +144,22 @@ def test_triality_metadata_includes_weight_codec_and_v1_payload() -> None:
         weight_plan=payload["weight_plan"],
     )
 
+    assert metadata["hypura.turboquant.codec"] == "tq4_1s"
+    assert metadata["hypura.turboquant.rotation_block_size"] == TRIALITY_ROTATION_BLOCK_SIZE
+    assert metadata["hypura.turboquant.runtime_mode"] == TRIALITY_RUNTIME_MODE
     assert metadata["hypura.turboquant.weight.codec"] == "tq4_1s"
     weight_payload = json.loads(metadata["hypura.turboquant.weight.payload_json"])
     assert weight_payload["schema"] == "hypura.turboquant.weight.v1"
+    assert weight_payload["codec"] == "tq4_1s"
     assert "target_type" not in weight_payload
+
+
+def test_triality_alias_normalization_accepts_the_tom_and_zapabob_spellings() -> None:
+    assert normalize_triality_runtime_mode("triality-vector") == TRIALITY_RUNTIME_MODE
+    assert normalize_triality_runtime_mode("research-kv-split") == TRIALITY_RUNTIME_MODE
+    assert normalize_triality_runtime_mode("triality_vector") == TRIALITY_RUNTIME_MODE
+    assert normalize_triality_view("plus") == "spinor_plus_proxy"
+    assert normalize_triality_view("minus") == "spinor_minus_proxy"
 
 
 def test_export_triality_fixture_writes_mmproj_pair_for_gemma4(tmp_path: Path) -> None:

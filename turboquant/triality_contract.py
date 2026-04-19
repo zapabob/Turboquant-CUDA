@@ -10,6 +10,21 @@ from turboquant.schema import build_paper_turboquant_config
 
 TRIALITY_PROXY_PARETO_MODE = "triality-proxy-so8-pareto"
 TRIALITY_PROXY_PARETO_LEGACY_ALIAS = "triality-so8-pareto"
+TRIALITY_RUNTIME_MODE = "key_only_block_so8_triality_vector"
+TRIALITY_RUNTIME_MODE_ALIASES = (
+    TRIALITY_RUNTIME_MODE,
+    "triality_vector",
+    "triality-vector",
+    "research-kv-split",
+)
+TRIALITY_VIEW_ALIASES = {
+    "vector": "vector",
+    "spinor_plus_proxy": "spinor_plus_proxy",
+    "plus": "spinor_plus_proxy",
+    "spinor_minus_proxy": "spinor_minus_proxy",
+    "minus": "spinor_minus_proxy",
+}
+TRIALITY_ROTATION_BLOCK_SIZE = 8
 
 TrialityPublicMode = Literal["paper-faithful", "triality-proxy-so8-pareto", "triality-so8-pareto"]
 
@@ -27,10 +42,15 @@ TRIALITY_REQUIRED_KEYS = (
     "hypura.turboquant.schema_version",
     "hypura.turboquant.enabled",
     "hypura.turboquant.mode",
+    "hypura.turboquant.codec",
     "hypura.turboquant.rotation_policy",
+    "hypura.turboquant.rotation_block_size",
     "hypura.turboquant.rotation_seed",
     "hypura.turboquant.triality_view",
     "hypura.turboquant.triality_mix",
+    "hypura.turboquant.view_bundle_complete",
+    "hypura.turboquant.orthogonality_error",
+    "hypura.turboquant.determinant_error_max",
     "hypura.turboquant.paper_fidelity",
     "hypura.turboquant.k_bits",
     "hypura.turboquant.v_bits",
@@ -61,6 +81,21 @@ class TrialityModeSpec:
     paper_fidelity: bool
     k_bits: float
     v_bits: float
+
+
+def normalize_triality_view(view: str) -> str:
+    normalized_view = view.strip().lower().replace("-", "_")
+    try:
+        return TRIALITY_VIEW_ALIASES[normalized_view]
+    except KeyError as exc:
+        supported = ", ".join(sorted(TRIALITY_VIEW_ALIASES))
+        raise ValueError(f"Unsupported triality_view {view!r}; expected one of {supported}") from exc
+
+
+def normalize_triality_runtime_mode(runtime_mode: str) -> str:
+    normalized_mode = runtime_mode.strip().lower().replace("-", "_")
+    alias_map = {alias.replace("-", "_"): TRIALITY_RUNTIME_MODE for alias in TRIALITY_RUNTIME_MODE_ALIASES}
+    return alias_map.get(normalized_mode, runtime_mode)
 
 
 def normalize_model_family(model_family: str) -> str:
@@ -321,7 +356,7 @@ def resolve_triality_mode_spec(mode: str) -> TrialityModeSpec:
     if mode in {TRIALITY_PROXY_PARETO_MODE, TRIALITY_PROXY_PARETO_LEGACY_ALIAS}:
         return TrialityModeSpec(
             mode=TRIALITY_PROXY_PARETO_MODE,
-            runtime_mode="research-kv-split",
+            runtime_mode=TRIALITY_RUNTIME_MODE,
             rotation_policy="block_so8_learned",
             rotation_seed=17,
             triality_view="vector",
@@ -364,16 +399,21 @@ def build_triality_payload(
     payload: dict[str, Any] = {
         "schema_kind": "triality_gguf_payload",
         "schema_version": TRIALITY_GGUF_SCHEMA_VERSION,
+        "codec": "tq4_1s",
         "mode": spec.mode,
         "model_family": model_family,
-        "runtime_mode": spec.runtime_mode,
+        "runtime_mode": normalize_triality_runtime_mode(spec.runtime_mode),
         "head_dim": int(head_dim),
         "num_layers": int(num_layers),
         "num_kv_heads": int(num_kv_heads),
         "rotation_policy": spec.rotation_policy,
+        "rotation_block_size": TRIALITY_ROTATION_BLOCK_SIZE,
         "rotation_seed": int(resolved_rotation_seed),
-        "triality_view": spec.triality_view,
+        "triality_view": normalize_triality_view(spec.triality_view),
         "triality_mix": float(spec.triality_mix),
+        "view_bundle_complete": spec.triality_view == "none",
+        "orthogonality_error": float(offline_metrics.get("orthogonality_error", 0.0) if offline_metrics else 0.0),
+        "determinant_error_max": float(offline_metrics.get("determinant_error_max", 0.0) if offline_metrics else 0.0),
         "paper_fidelity": spec.paper_fidelity,
         "k_bits": float(spec.k_bits),
         "v_bits": float(spec.v_bits),
@@ -435,14 +475,20 @@ def build_triality_metadata(
         "hypura.turboquant.schema_version": TRIALITY_GGUF_SCHEMA_VERSION,
         "hypura.turboquant.enabled": True,
         "hypura.turboquant.mode": spec.mode,
+        "hypura.turboquant.codec": "tq4_1s",
         "hypura.turboquant.rotation_policy": rotation_policy or spec.rotation_policy,
+        "hypura.turboquant.rotation_block_size": TRIALITY_ROTATION_BLOCK_SIZE,
         "hypura.turboquant.rotation_seed": int(
             spec.rotation_seed if rotation_seed is None else rotation_seed
         ),
-        "hypura.turboquant.triality_view": triality_view or spec.triality_view,
+        "hypura.turboquant.triality_view": normalize_triality_view(triality_view or spec.triality_view),
         "hypura.turboquant.triality_mix": float(
             spec.triality_mix if triality_mix is None else triality_mix
         ),
+        "hypura.turboquant.view_bundle_complete": spec.triality_view == "none"
+        or normalize_triality_view(triality_view or spec.triality_view) == "vector",
+        "hypura.turboquant.orthogonality_error": 0.0,
+        "hypura.turboquant.determinant_error_max": 0.0,
         "hypura.turboquant.paper_fidelity": spec.paper_fidelity
         if paper_fidelity is None
         else bool(paper_fidelity),
@@ -451,7 +497,7 @@ def build_triality_metadata(
         "hypura.turboquant.payload_format": TRIALITY_GGUF_PAYLOAD_FORMAT,
         "hypura.turboquant.payload_bytes": len(payload_json.encode("utf-8")),
         "hypura.turboquant.payload_json": payload_json,
-        "hypura.turboquant.runtime_mode": runtime_mode or spec.runtime_mode,
+        "hypura.turboquant.runtime_mode": normalize_triality_runtime_mode(runtime_mode or spec.runtime_mode),
     }
     if source_profile:
         metadata["hypura.turboquant.source_profile"] = source_profile
@@ -494,7 +540,21 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
         raise ValueError(
             f"payload schema_version must be {TRIALITY_GGUF_SCHEMA_VERSION}, got {payload.get('schema_version')!r}"
         )
+    if str(payload.get("codec", "")).strip().lower() != "tq4_1s":
+        raise ValueError("payload codec must be 'tq4_1s'")
     resolve_triality_mode_spec(str(payload.get("mode")))
+    if int(payload.get("rotation_block_size", 0)) != TRIALITY_ROTATION_BLOCK_SIZE:
+        raise ValueError(
+            f"payload rotation_block_size must be {TRIALITY_ROTATION_BLOCK_SIZE}"
+        )
+    normalize_triality_view(str(payload.get("triality_view", "none")))
+    runtime_mode = normalize_triality_runtime_mode(str(payload.get("runtime_mode", "")))
+    if runtime_mode not in {"paper-key-only", TRIALITY_RUNTIME_MODE}:
+        raise ValueError(f"Unsupported payload runtime_mode {payload.get('runtime_mode')!r}")
+    orthogonality_error = float(payload.get("orthogonality_error", 0.0))
+    determinant_error_max = float(payload.get("determinant_error_max", 0.0))
+    if orthogonality_error < 0.0 or determinant_error_max < 0.0:
+        raise ValueError("payload orthogonality and determinant errors must be non-negative")
     weight_plan = payload.get("weight_plan")
     if not isinstance(weight_plan, dict):
         raise ValueError("payload must include a weight_plan object")
@@ -519,11 +579,32 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
             f"Unsupported Triality schema_version {schema_version}; expected {TRIALITY_GGUF_SCHEMA_VERSION}"
         )
 
+    codec = str(metadata["hypura.turboquant.codec"]).strip().lower()
+    if codec != "tq4_1s":
+        raise ValueError(f"Unsupported hypura.turboquant.codec {codec!r}; expected 'tq4_1s'")
+
+    rotation_block_size = int(metadata["hypura.turboquant.rotation_block_size"])
+    if rotation_block_size != TRIALITY_ROTATION_BLOCK_SIZE:
+        raise ValueError(
+            f"Unsupported hypura.turboquant.rotation_block_size {rotation_block_size}; "
+            f"expected {TRIALITY_ROTATION_BLOCK_SIZE}"
+        )
+
     payload_format = str(metadata["hypura.turboquant.payload_format"])
     if payload_format != TRIALITY_GGUF_PAYLOAD_FORMAT:
         raise ValueError(
             f"Unsupported Triality payload_format {payload_format!r}; expected {TRIALITY_GGUF_PAYLOAD_FORMAT!r}"
         )
+
+    normalize_triality_view(str(metadata["hypura.turboquant.triality_view"]))
+    runtime_mode = normalize_triality_runtime_mode(str(metadata.get("hypura.turboquant.runtime_mode", spec.runtime_mode)))
+    if runtime_mode not in {"paper-key-only", TRIALITY_RUNTIME_MODE}:
+        raise ValueError(f"Unsupported hypura.turboquant.runtime_mode {runtime_mode!r}")
+
+    orthogonality_error = float(metadata["hypura.turboquant.orthogonality_error"])
+    determinant_error_max = float(metadata["hypura.turboquant.determinant_error_max"])
+    if orthogonality_error < 0.0 or determinant_error_max < 0.0:
+        raise ValueError("hypura.turboquant orthogonality/determinant errors must be non-negative")
 
     payload_json = metadata.get("hypura.turboquant.payload_json")
     payload_bytes = int(metadata["hypura.turboquant.payload_bytes"])
@@ -576,6 +657,10 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
             ) from exc
         if not isinstance(parsed_weight_payload, dict):
             raise ValueError("hypura.turboquant.weight.payload_json must decode to an object")
+        if parsed_weight_payload.get("codec") != weight_codec:
+            raise ValueError(
+                "hypura.turboquant.weight.payload_json codec does not match hypura.turboquant.weight.codec"
+            )
         validate_weight_plan(
             parsed_weight_payload,
             model_family=str(parsed_weight_payload.get("model_family", "generic")),
@@ -600,6 +685,9 @@ __all__ = [
     "TRIALITY_GGUF_SCHEMA_VERSION",
     "TRIALITY_PROXY_PARETO_LEGACY_ALIAS",
     "TRIALITY_PROXY_PARETO_MODE",
+    "TRIALITY_ROTATION_BLOCK_SIZE",
+    "TRIALITY_RUNTIME_MODE",
+    "TRIALITY_RUNTIME_MODE_ALIASES",
     "TRIALITY_REQUIRED_KEYS",
     "TrialityModeSpec",
     "build_sample_env",
@@ -609,6 +697,8 @@ __all__ = [
     "build_default_weight_plan",
     "expected_modalities",
     "normalize_model_family",
+    "normalize_triality_runtime_mode",
+    "normalize_triality_view",
     "payload_json_dumps",
     "resolve_triality_mode_spec",
     "validate_triality_metadata",

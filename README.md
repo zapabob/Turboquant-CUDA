@@ -1,50 +1,67 @@
 # TurboQuant CUDA
 
-Paper-faithful TurboQuant research and integration workspace for Qwen3.5-9B KV-cache compression, Triality GGUF packaging, and weight-contract staging.
+**TL;DR:** this is a Windows-first, offline-first TurboQuant research workspace that measures what usually gets hand-waved away: not just reconstruction, but hidden-state transport, attention behavior, GGUF packaging, and whether `TQ4_1S` / Triality artifacts actually survive the trip into a real `llama.cpp` runtime.
 
-This repository is the Windows-native workbench for:
+- **Best current K-side practical line:** `key_only_block_so8_triality_vector`
+- **Best current story for readers:** reproducible RTX 3060 12 GB evidence, deterministic fixture export, and a vendored `zapabob/llama.cpp` that can now load real `TQ4_1S` GGUFs
+- **What is already implemented here:** offline TurboQuant replay, Triality + learned SO(8) research/export, GGUF metadata/contract packaging, `TQ4_1S` converter/export, and CPU/CUDA-staged runtime loading in vendored `llama.cpp`
+- **What is not claimed here:** a fused packed-weight CUDA kernel, a finished native `TQ4_1S -> q8_0 scratch` fast path, or universal runtime wins across every model/runtime stack
+- **Why this repo exists:** to keep research-faithful math, artifact contracts, and runtime integration in one place instead of treating them as separate hand-wavy projects
 
-- reproducing TurboQuant Stage 1 and Stage 2 offline
-- validating captured Qwen3.5-9B KV behavior with hidden, attention, and logit metrics
-- extending the K path with triality-proxy SO(8) and multiscreen relevance
-- packaging GGUF artifacts for `llama.cpp` and Hypura
-- exporting deterministic Triality fixture bundles for Qwen 3.5 and Gemma 4 family models
-- defining the `hypura.turboquant.weight.v1` metadata and payload contract for future weight-side runtime work
-- running a local FastAPI + React Studio UI on top of the existing CLI flows
+![Qwen 3060 quality summary](_docs/assets/qwen_3060_matrix_attention.png)
 
-## TL;DR
+![Qwen 3060 runtime summary](_docs/assets/qwen_3060_matrix_runtime.png)
 
-- **What this repo is:** a reproducible TurboQuant prototype for offline-first KV-cache research on Qwen3.5-9B
-- **Current practical K-side reference:** `key_only_block_so8_triality_vector`
-- **Mainline reference workflow:** RTX 3060 12 GB reduced 7-mode comparison matrix
-- **Current weight-side status:** `tq4_1s` contract and fixture export are implemented; native weight codec / CUDA matmul are not yet implemented here
-- **Current fixture status:** Qwen 3.5 text-only and Gemma 4 paired `mmproj` Triality fixture manifests export and verify deterministically
-- **Primary value:** it does not stop at reconstruction error; it keeps hidden-state, attention/logit, memory, and runtime surfaces separate
-- **Platform target:** Windows + `uv` + Python 3.12.x first
+## Why This Repo Is Worth Following
 
-## Why This Repo Exists
+Most TurboQuant repos stop at one of these boundaries:
 
-Most TurboQuant summaries focus on memory reduction and score-like behavior. This repo exists to answer the harder questions that matter in practice:
+1. paper math without runtime integration
+2. runtime integration without reproducible offline evidence
+3. memory wins without hidden-state checks
+4. codec contracts without deterministic export/import validation
 
-1. Does paper-faithful TurboQuant reproduce cleanly on captured Qwen3.5-9B KV?
-2. What changes when we judge hidden-state transport, not only logits?
-3. How far can we push the K path with learned SO(8) block rotations and triality-proxy views?
-4. Can the offline artifact contract bridge cleanly into GGUF and current runtime loaders?
+This repo tries to keep the whole chain visible:
 
-The design rule throughout the repo is:
+- **paper-faithful Stage 1 / Stage 2**
+- **captured Qwen3.5-9B replay on real hardware**
+- **Triality + learned SO(8) K-side experiments**
+- **GGUF metadata and artifact packaging**
+- **vendored `zapabob/llama.cpp` runtime consumption**
+- **operator-facing local Studio flows on Windows**
 
-**offline correctness first, runtime claims second**
+That is also why the README keeps the evidence families in the top level instead of hiding them deep in artifact folders.
+
+## What Shipped Recently
+
+The latest implementation wave made the repo much closer to a full research-to-runtime handoff:
+
+- **Byte-exact `TQ4_1S` export path**
+  - Python GGUF export was aligned to the `llama.cpp` reference math and validated against real Gemma 4 artifacts.
+- **Real `TQ4_1S` loadability in vendored `llama.cpp`**
+  - `GGML_TYPE_TQ4_1S` is now loadable on CPU and through the current staged CUDA path in the vendored runtime.
+- **Triality shared ABI hardening**
+  - canonical naming, alias normalization, and stricter fail-closed metadata checks now reject incomplete artifacts instead of quietly accepting them.
+- **Learned SO(8) export with explicit validity metrics**
+  - orthogonality and determinant metrics are now carried through the Triality metadata line.
+
+Implementation logs:
+
+- [`_docs/2026-04-19_tq4_1s-python-e2e-byte-exact-and-real-gemma4-validation.md`](_docs/2026-04-19_tq4_1s-python-e2e-byte-exact-and-real-gemma4-validation.md)
+- [`_docs/2026-04-19_llama_cpp_tq4_1s_ggml_loadable_path.md`](_docs/2026-04-19_llama_cpp_tq4_1s_ggml_loadable_path.md)
+- [`_docs/2026-04-20_triality-shared-abi-and-fail-closed-runtime.md`](_docs/2026-04-20_triality-shared-abi-and-fail-closed-runtime.md)
 
 ## Current Mainline
 
-- Qwen3.5-9B text-only captured KV on RTX 3060 12 GB
-- fixed 7-mode reduced comparison matrix driven by `scripts\validate_qwen_3060_matrix.py`
-- Triality fixture export and validation path driven by `scripts\export_triality_fixture.py` and `scripts\verify_triality_export.py`
-- local `TurboQuant Studio` shell for setup, capture, validation, compare, packaging, and serve workflows
-- GGUF packaging and runtime evaluation paths for `llama.cpp` and Hypura integration
-- weight-plan defaults for Qwen 3.5 (`qwen35-config-i`) and Gemma 4 (`gemma4-kv-first-multimodal-safe`)
+The repo currently centers on:
 
-### Mainline Modes
+- **Qwen3.5-9B text-only captured KV**
+- **RTX 3060 12 GB reduced comparison matrices**
+- **Triality fixture export for Qwen 3.5 and Gemma 4**
+- **GGUF packaging for `llama.cpp` and Hypura-style consumers**
+- **weight-side contract staging around `hypura.turboquant.weight.v1` and `codec=tq4_1s`**
+
+Mainline K-side modes:
 
 - `exact`
 - `key_only_random`
@@ -54,74 +71,147 @@ The design rule throughout the repo is:
 - `multiscreen_relevance`
 - `key_only_block_so8_triality_vector`
 
-## Workflow Overview
+## 12 GB RTX 3060 Snapshot
 
-```mermaid
-flowchart LR
-    A["KV Capture<br/>scripts/capture_qwen_kv.py"] --> B["Offline Validation<br/>paper baseline + 3060 matrix"]
-    B --> C["Reports and Plots<br/>export_report.py"]
-    B --> D["GGUF Packaging<br/>pack_turboquant_gguf.py"]
-    D --> E["Runtime Eval / Serving<br/>llama.cpp + Hypura"]
-    F["TurboQuant Studio<br/>FastAPI + React"] -. orchestrates .-> A
-    F -. orchestrates .-> B
-    F -. orchestrates .-> C
-    F -. orchestrates .-> D
-    F -. orchestrates .-> E
-```
+For day-to-day reading, the practical 4-bit headline is:
 
-## What Is In Scope
+| Mode | Logit cosine (M +/- SD) | Hidden cosine (M +/- SD) | Memory ratio vs exact (M +/- SD) |
+| --- | --- | --- | --- |
+| `exact` | `1.000000 +/- 0.000000` | `1.000000 +/- 0.000000` | `1.000000 +/- 0.000000` |
+| `full_kv` | `0.997396 +/- 0.006379` | `0.994792 +/- 0.003189` | `0.255859 +/- 0.000000` |
+| `asym_q8_turbo4` | `1.001302 +/- 0.005881` | `0.994141 +/- 0.004784` | `0.378906 +/- 0.000000` |
+| `asym_q8_turbo3` | `0.996745 +/- 0.002941` | `0.981771 +/- 0.004731` | `0.347656 +/- 0.000000` |
+| `multiscreen_relevance` | `1.002604 +/- 0.006379` | `1.000000 +/- 0.000000` | `0.660156 +/- 0.000000` |
+| `key_only_block_so8_triality_vector` | `1.000000 +/- 0.000000` | `0.999349 +/- 0.001595` | `0.628906 +/- 0.000000` |
 
-| Layer | Purpose |
+Practical reading:
+
+- `key_only_block_so8_triality_vector` remains the **production K-side reference** because it keeps hidden-state quality high while staying simple to package and consume.
+- `asym_q8_turbo4` is still the **aggressive memory-saving baseline** worth keeping in the README because it is the honest low-memory comparison point.
+- `full_kv` still shows why this repo refuses to equate “good logit-like scores” with “safe hidden-state transport.”
+
+## Implementation Summary
+
+At this point, the repo has three clear layers.
+
+| Layer | What is implemented now | What is deliberately still incomplete |
+| --- | --- | --- |
+| Offline research | paper-faithful Stage 1 / Stage 2, captured replay, Triality / SO(8), hidden and attention metrics | not every research branch is promoted to production defaults |
+| Artifact contract | GGUF packaging, `hypura.turboquant.*`, `hypura.turboquant.weight.*`, deterministic fixture export, real Gemma 4 multimodal-safe guards | weight codec policy is ahead of fully optimized weight runtime kernels |
+| Runtime path | vendored `zapabob/llama.cpp` can load real `TQ4_1S` GGUFs on CPU and the current staged CUDA line | no fused packed-weight CUDA kernel yet, and no claim that staged CUDA is the final performance architecture |
+
+## Eval Output Layout
+
+### Primary 12 GB Matrix Outputs
+
+| Path | Contents |
 | --- | --- |
-| `turboquant.paper_baseline` | Paper-faithful Stage 1 and Stage 2 math, synthetic and captured attention replay |
-| `turboquant.research_extension` | Multiscreen relevance, value-codec experiments, learned SO(8), triality-proxy K modes |
-| `turboquant.triality_contract` | Triality fixture payload/metadata contract, weight-plan validation, modality-aware manifest rules |
-| `turboquant.adapters.hf_qwen` | Optional Hugging Face / Qwen capture and online diagnostic evaluation |
-| `turboquant.runtime_eval` | Runtime benchmark and audit helpers for `llama.cpp`-style flows |
-| `turboquant.studio_api` | Local FastAPI orchestration layer for TurboQuant Studio |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_trials.csv` | Raw per-trial rows for the 7-mode 12 GB matrix |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_summary.csv` / `.md` | Pooled summary with mean, SD, SEM, and 95% CI |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_mean_pm_sd.csv` / `.md` | Mode x bit `M +/- SD` table |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_friedman.csv` / `.md` | Friedman test across the 7 modes |
+| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_pairwise.csv` / `.md` | Pairwise Wilcoxon-Holm vs baseline modes |
+| `artifacts/qwen_3060_matrix/reports/qwen_3060_matrix_summary.md` | Exported markdown summary used by repo docs |
+| `artifacts/qwen_3060_matrix/plots/qwen_3060_matrix_attention.png` | Attention/logit trade-off plot with error bars |
+| `artifacts/qwen_3060_matrix/plots/qwen_3060_matrix_runtime.png` | Runtime trade-off plot with error bars |
 
-### Scope Labels
+### Secondary Triality Outputs
 
-- **Paper-faithful:** TurboQuant Stage 1 + Stage 2, paper mixed-bit settings, synthetic and captured replay
-- **Production canonical:** `key_only_block_so8_triality_vector`
-- **Weight contract current line:** `hypura.turboquant.weight.v1` with `codec=tq4_1s`, protected roles/layers, and deterministic `tensor_plan`
-- **Research / ablation:** random/static SO(8), learned block-SO(8), multiscreen variants, value-codec experiments, future true `triality_spin8`
+| Path | Contents |
+| --- | --- |
+| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_trials_captured.csv` | Raw per-trial rows |
+| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_summary_captured.csv` / `.md` | Pooled summary with mean, SD, SEM, and 95% CI |
+| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_summary_mean_pm_sd.csv` / `.md` | Mode x bit `M +/- SD` table |
+| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_statistics.csv` / `.md` | Mode-wise statistical tests |
+| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_friedman_rotation_modes.csv` / `.md` | Friedman test across K modes at fixed bit |
+| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_pairwise_wilcoxon_rotation_modes.csv` / `.md` | Pairwise Wilcoxon with Holm correction |
+| `artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_*_captured.png` | Trade-off and `M +/- SD` plots |
+| `artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_advantage_*.png` | Triality advantage figures |
 
-## Current Weight Status
+## M +/- SD And Summary Statistics
 
-This repo now carries a stricter Triality weight contract, but it still does **not** claim a completed weight-side TurboQuant runtime.
+### Triality rotation-family summary at 4 bits
 
-- implemented here:
-  - `weight_plan.schema = hypura.turboquant.weight.v1`
-  - `weight_plan.codec = tq4_1s`
-  - Qwen 3.5 default policy `qwen35-config-i`
-  - Gemma 4 default policy `gemma4-kv-first-multimodal-safe`
-  - deterministic fixture export and verification for text-only and paired-multimodal manifests
-- not implemented here:
-  - native `tq4_1s` weight blocks inside `llama.cpp`
-  - native CUDA `tq4_1s` matmul
-  - full weight-side runtime savings claims on real models
+Source: `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_summary_mean_pm_sd.csv`
 
-Read the current weight work as a **metadata / artifact contract line** that prepares upstream runtime integration without pretending that the runtime path is already complete.
+| Mode | Logit cosine (M +/- SD) | Hidden cosine (M +/- SD) | Memory ratio (M +/- SD) |
+| --- | --- | --- | --- |
+| `key_only_block_so8_static` | `0.999512 +/- 0.003699` | `1.000651 +/- 0.003762` | `0.628906 +/- 0.000000` |
+| `key_only_block_so8_learned` | `0.999512 +/- 0.002655` | `1.000488 +/- 0.003321` | `0.628906 +/- 0.000000` |
+| `key_only_block_so8_triality_vector` | `1.000000 +/- 0.004461` | `1.000651 +/- 0.003762` | `0.628906 +/- 0.000000` |
+| `key_only_block_so8_triality_plus` | `1.000814 +/- 0.004150` | `1.000163 +/- 0.003546` | `0.628906 +/- 0.000000` |
+| `key_only_block_so8_triality_minus` | `1.000977 +/- 0.005054` | `1.000651 +/- 0.004258` | `0.628906 +/- 0.000000` |
+| `full_kv` | `0.999023 +/- 0.003688` | `0.995605 +/- 0.003115` | `0.255859 +/- 0.000000` |
 
-## Triality-Proxy SO(8) In One Paragraph
+### Inferential summary
 
-The main differentiator in this repo is the K-side learned SO(8) block rotation path.
+Source: `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_friedman_rotation_modes.md`
 
-- the key head dimension is split into 8-dimensional blocks
-- each block is fit with a learned SO(8) rotation
-- those learned rotations are exposed through triality-proxy views
-- the current practical default is the **vector proxy view**
-- the runtime mode name is `key_only_block_so8_triality_vector`
+- For **hidden cosine**, the rotation-family differences are strongly non-random at low bits.
+- At **4 bits**, the Friedman row is `statistic = 264.2103546677535`, `p = 3.7569452515144635e-54`, `n_blocks = 96`, `n_modes = 7`.
+- This is exactly the kind of result the repo wants to expose: memory and logit-like scores alone do not tell the full story.
 
-This is not presented as true Spin(8) triality. It is explicitly a **triality-proxy** production path.
+## Error-Bar Figures
+
+### 12 GB matrix figures
+
+These are the high-level figures most readers should look at first.
+
+![Qwen 3060 matrix quality with error bars](_docs/assets/qwen_3060_matrix_attention.png)
+
+![Qwen 3060 matrix runtime with error bars](_docs/assets/qwen_3060_matrix_runtime.png)
+
+The tracked README copies come from the main 12 GB matrix export path. Plot points are means and the error bars come from the summary statistics emitted by the matrix export.
+
+### Triality figures
+
+![Triality mean plus minus SD](artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_mean_pm_sd_captured.png)
+
+![Triality Pareto hidden vs memory](artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_advantage_pareto_hidden_memory.png)
+
+![Triality grouped hidden advantage](artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_advantage_grouped_hidden.png)
+
+## Pareto Frontiers
+
+Keep these three evidence families together:
+
+1. **Eval Output Layout**
+   - raw trials, pooled summaries, pairwise tests, and plots
+2. **Pareto Frontiers**
+   - hidden/logit/memory trade-off views
+3. **Paper Baseline Reference Results**
+   - paper-faithful captured reference rows
+4. **Triality Advantage Figures**
+   - direct rotation-family comparisons
+
+That is the minimum set that prevents “nice memory ratios” from turning into misleading conclusions.
+
+## Paper Baseline Reference Results
+
+Source: `artifacts/paper_baseline/qwen_captured_reported/metrics/attention_summary_captured_mean_pm_sd.md`
+
+| Bits | Logit cosine | Hidden cosine (KO) | Hidden cosine (FV) | Memory/exact (KO) | Memory/exact (FV) | Attention relative error (KO) | Attention relative error (FV) |
+| ---: | --- | --- | --- | ---: | ---: | --- | --- |
+| 2 | `0.995117 +/- 0.001953` | `0.997070 +/- 0.003740` | `0.939453 +/- 0.006766` | `0.566406` | `0.130859` | `0.048950 +/- 0.025218` | `0.340332 +/- 0.003336` |
+| 2.5 | `0.998047 +/- 0.002255` | `0.999023 +/- 0.001953` | `0.957031 +/- 0.003189` | `0.574219` | `0.146484` | `0.033066 +/- 0.013036` | `0.287109 +/- 0.001595` |
+| 3 | `1.000000 +/- 0.000000` | `0.998047 +/- 0.002255` | `0.980469 +/- 0.005524` | `0.597656` | `0.193359` | `0.023590 +/- 0.007530` | `0.184570 +/- 0.000797` |
+| 3.5 | `0.999023 +/- 0.001953` | `0.999023 +/- 0.001953` | `0.988281 +/- 0.003189` | `0.605469` | `0.208984` | `0.014328 +/- 0.004094` | `0.150635 +/- 0.002916` |
+| 4 | `0.998047 +/- 0.003906` | `0.999023 +/- 0.001953` | `0.995117 +/- 0.001953` | `0.628906` | `0.255859` | `0.009918 +/- 0.003365` | `0.096924 +/- 0.001668` |
+
+The baseline takeaway remains simple and important:
+
+- K-only TurboQuant-like lines preserve hidden-state quality much better than `full_kv` at low bits.
+- That is exactly why this repo treats K-side stability as the practical production question.
+
+![Paper baseline trade-offs](artifacts/paper_baseline/qwen_captured_reported/plots/attention_tradeoffs_captured.png)
+
+![Paper baseline M +/- SD](artifacts/paper_baseline/qwen_captured_reported/plots/attention_mean_pm_sd_captured.png)
 
 ## Quick Start
 
 Run everything from the repository root, the directory containing `pyproject.toml`.
 
 ```powershell
-irm https://astral.sh/uv/install.ps1 | iex
 uv python install 3.12.9
 uv venv --python 3.12.9
 uv sync --extra cu128 --extra dev --extra hf_qwen --extra eval
@@ -129,47 +219,23 @@ uv run python scripts\env_check.py
 uv run python scripts\validate_repo_contract.py
 ```
 
-### Extras
+Main extras:
 
 - `--extra cu128`: CUDA PyTorch
-- `--extra dev`: pytest and local verification helpers
+- `--extra dev`: pytest and verification helpers
 - `--extra hf_qwen`: Hugging Face / Qwen capture path
-- `--extra eval`: runtime eval, HF online eval, and report export dependencies
+- `--extra eval`: runtime eval and report export dependencies
 
 ## Start Here
 
-### 1. Verify The Environment
+### 1. Verify the environment
 
 ```powershell
 uv run python scripts\env_check.py
 uv run python scripts\validate_repo_contract.py
 ```
 
-### 2. Run The 12 GB Mainline Matrix
-
-```powershell
-uv run python scripts\capture_qwen_kv.py `
-  --model-preset qwen35_9b_12gb `
-  --weight-load 4bit `
-  --dtype bfloat16 `
-  --trust-remote-code `
-  --model-id "H:\Qwen3.5-9B-official-hf" `
-  --output-dir artifacts\kv_rtx3060_qwen9b `
-  --max-length 64
-
-uv run python scripts\validate_qwen_3060_matrix.py `
-  --kv-dir artifacts\kv_rtx3060_qwen9b `
-  --rotation-dir artifacts\research_extension\triality_full_train_prod_bf16\rotations `
-  --eval-device cuda `
-  --bits 3,3.5,4 `
-  --trials 3 `
-  --max-layers 2 `
-  --output-dir artifacts\qwen_3060_matrix
-
-uv run python scripts\export_report.py --matrix-dir artifacts\qwen_3060_matrix
-```
-
-### 3. Launch TurboQuant Studio
+### 2. Launch the local Studio
 
 Backend:
 
@@ -185,20 +251,7 @@ npm install
 npm run dev
 ```
 
-Production frontend build:
-
-```powershell
-Set-Location .\studio-web
-npm run build
-```
-
-Then open:
-
-- `http://127.0.0.1:8000/studio`
-
-Studio is intentionally an operator shell, not a chat UI. It keeps `Validate -> Preview -> Run` visible for every workflow.
-
-### 4. Package A GGUF Artifact
+### 3. Package a GGUF artifact
 
 ```powershell
 uv run python scripts\pack_turboquant_gguf.py `
@@ -209,16 +262,7 @@ uv run python scripts\pack_turboquant_gguf.py `
   --hypura-compatible-profile auto
 ```
 
-This path now writes:
-
-- embedded `turboquant.profile.*` manifests
-- strict top-level `tq_*` GGUF contract for the selected research profile
-- `hypura.turboquant.*` bridge metadata
-- `hypura.turboquant.weight.*` weight-plan metadata, including `codec=tq4_1s`
-
-### 5. Export And Verify Triality Fixture Bundles
-
-Qwen 3.5 text-only example:
+### 4. Export and verify Triality fixtures
 
 ```powershell
 uv run python scripts\export_triality_fixture.py `
@@ -230,224 +274,30 @@ uv run python scripts\verify_triality_export.py `
   --manifest artifacts\triality_fixtures\triality-proxy-so8-pareto\triality-fixture-manifest.json
 ```
 
-Gemma 4 paired multimodal example:
+## Scope And Non-Claims
 
-```powershell
-uv run python scripts\export_triality_fixture.py `
-  --output-dir artifacts\triality_fixtures_gemma `
-  --mode triality-proxy-so8-pareto `
-  --model-family google/gemma-4-e4b-it
+This repo is intentionally strict about what it claims.
 
-uv run python scripts\verify_triality_export.py `
-  --manifest artifacts\triality_fixtures_gemma\triality-proxy-so8-pareto\triality-fixture-manifest.json
-```
+It **does** claim:
 
-The Gemma 4 fixture path emits both:
+- offline TurboQuant correctness matters
+- hidden-state quality matters
+- artifact contracts should be explicit and testable
+- `TQ4_1S` should be validated end to end, not just named in metadata
 
-- `triality-fixture.gguf`
-- `mmproj-triality-fixture.gguf`
+It **does not** currently claim:
 
-### 6. Run Runtime Evaluation
-
-```powershell
-uv run python scripts\eval_runtime_qwen.py `
-  --mode exact `
-  --model-path path\to\model.gguf `
-  --server-bin zapabob\llama.cpp\build\bin\Release\llama-server.exe `
-  --llama-bench-bin zapabob\llama.cpp\build\bin\Release\llama-bench.exe `
-  --output-dir artifacts\runtime_eval `
-  --dry-run
-```
-
-## Current 12 GB Matrix Snapshot
-
-Source files:
-
-- `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_mean_pm_sd.csv`
-- `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_summary.csv`
-- `artifacts\qwen_3060_matrix\reports\qwen_3060_matrix_summary.md`
-- `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_pairwise.md`
-- `artifacts\qwen_3060_matrix\metrics\qwen_3060_matrix_friedman.md`
-
-Tracked README figure copies:
-
-![Qwen 3060 Matrix Quality Summary](_docs/assets/qwen_3060_matrix_attention.png)
-
-![Qwen 3060 Matrix Runtime Summary](_docs/assets/qwen_3060_matrix_runtime.png)
-
-Plot points are means, and the error bars come from `sem` in `qwen_3060_matrix_summary.csv`.
-
-### 4-bit Headline Snapshot
-
-| Mode | Logit cosine | Hidden cosine | Memory ratio vs exact |
-| --- | --- | --- | --- |
-| `exact` | `1.000000 +/- 0.000000` | `1.000000 +/- 0.000000` | `1.000000 +/- 0.000000` |
-| `key_only_random` | `0.997396 +/- 0.006379` | `1.002604 +/- 0.004034` | `0.628906 +/- 0.000000` |
-| `full_kv` | `0.997396 +/- 0.006379` | `0.994792 +/- 0.003189` | `0.255859 +/- 0.000000` |
-| `asym_q8_turbo4` | `1.001302 +/- 0.005881` | `0.994141 +/- 0.004784` | `0.378906 +/- 0.000000` |
-| `asym_q8_turbo3` | `0.996745 +/- 0.002941` | `0.981771 +/- 0.004731` | `0.347656 +/- 0.000000` |
-| `multiscreen_relevance` | `1.002604 +/- 0.006379` | `1.000000 +/- 0.000000` | `0.660156 +/- 0.000000` |
-| `key_only_block_so8_triality_vector` | `1.000000 +/- 0.000000` | `0.999349 +/- 0.001595` | `0.628906 +/- 0.000000` |
-
-## Eval Output Layout
-
-### Primary 12 GB Matrix Outputs
-
-| Path | Contents |
-| --- | --- |
-| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_trials.csv` | Raw per-trial rows for the 7-mode 12 GB matrix |
-| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_summary.csv` / `.md` | Pooled summary with mean, std, sem, and 95 percent CI |
-| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_mean_pm_sd.csv` / `.md` | Mode x bit `mean +/- SD` table |
-| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_friedman.csv` / `.md` | Friedman test across the 7 modes |
-| `artifacts/qwen_3060_matrix/metrics/qwen_3060_matrix_pairwise.csv` / `.md` | Pairwise Wilcoxon-Holm vs baseline modes |
-| `artifacts/qwen_3060_matrix/reports/qwen_3060_matrix_summary.md` | Exported markdown summary used by repo docs |
-| `artifacts/qwen_3060_matrix/plots/qwen_3060_matrix_attention.png` | Attention/logit trade-off plot with error bars |
-| `artifacts/qwen_3060_matrix/plots/qwen_3060_matrix_runtime.png` | Runtime trade-off plot with error bars |
-
-### Secondary Triality Outputs
-
-| Path | Contents |
-| --- | --- |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_trials_captured.csv` | Raw per-trial rows |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_summary_captured.csv` / `.md` | Pooled summary with mean, std, sem, and 95 percent CI |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_summary_mean_pm_sd.csv` / `.md` | Mode x bit `mean +/- SD` table |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_statistics.csv` / `.md` | Mode-wise statistical tests |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_friedman_rotation_modes.csv` / `.md` | Friedman test across K modes at fixed bit |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/triality_pairwise_wilcoxon_rotation_modes.csv` / `.md` | Pairwise Wilcoxon vs baseline with Holm correction |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/metrics/eval_resume_state.json` | Resume cursor and config fingerprint |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_*_captured.png` | Trade-off and `mean +/- SD` plots |
-| `artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_advantage_*.png` | Triality advantage figures |
-
-## Pareto Frontiers
-
-This repo already has three Pareto views that should be read together:
-
-1. **Replay memory vs logit/hidden quality**
-   - `_docs/assets/qwen_3060_matrix_attention.png`
-   - `artifacts/paper_baseline/qwen_captured_reported/plots/attention_tradeoffs_captured.png`
-2. **Triality hidden-quality Pareto**
-   - `artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_advantage_pareto_hidden_memory.png`
-3. **Online-eval memory joins**
-   - generated by `scripts\export_online_eval_report.py` once HF/runtime artifacts exist
-
-The practical reading is:
-
-- `multiscreen_relevance` and `key_only_block_so8_triality_vector` are the strongest 12 GB replay rows when hidden stability matters
-- `asym_q8_turbo4` is the aggressive memory-saving baseline worth keeping in the comparison, but it is not hidden-neutral here
-- the reduced 3060 slice still emits `Friedman` rows, but they are degenerate (`nan`, `p = 1.0`) and are not used as omnibus evidence in this README; the interpretable inferential signal is the pairwise `Wilcoxon-Holm` table
-
-## Paper Baseline Reference Results (Captured Qwen3.5-9B)
-
-Source: `artifacts/paper_baseline/qwen_captured_full_bf16/metrics/attention_trials_captured.csv`; `n = 96` per `(mode, bit)` from `4 prompts x 8 layers x 3 trials`.
-
-`KO = key_only_random`, `FV = full_kv`. Mixed-bit rows use `2.5 = 25 percent @3bit + 75 percent @2bit` and `3.5 = 25 percent @4bit + 75 percent @3bit`.
-
-| Bits | Logit cosine | Hidden cosine (KO) | Hidden cosine (FV) | Memory/exact (KO) | Memory/exact (FV) | Attn err (KO) | Attn err (FV) |
-| ---: | --- | --- | --- | ---: | ---: | --- | --- |
-| 2 | `0.997314 +/- 0.003554` | `0.999756 +/- 0.003794` | `0.940959 +/- 0.003962` | `0.566406` | `0.130859` | `0.027470 +/- 0.021959` | `0.339172 +/- 0.006291` |
-| 2.5 | `0.998494 +/- 0.003982` | `0.998779 +/- 0.004099` | `0.958700 +/- 0.003791` | `0.574219` | `0.146484` | `0.027599 +/- 0.029244` | `0.285421 +/- 0.006102` |
-| 3 | `0.999349 +/- 0.003872` | `0.999715 +/- 0.003168` | `0.982625 +/- 0.003395` | `0.597656` | `0.193359` | `0.014811 +/- 0.013992` | `0.184458 +/- 0.004565` |
-| 3.5 | `0.999308 +/- 0.003353` | `1.000285 +/- 0.003896` | `0.988403 +/- 0.003179` | `0.605469` | `0.208984` | `0.015692 +/- 0.016130` | `0.151886 +/- 0.004057` |
-| 4 | `0.999552 +/- 0.004312` | `0.999959 +/- 0.003823` | `0.995524 +/- 0.003352` | `0.628906` | `0.255859` | `0.006952 +/- 0.005955` | `0.096430 +/- 0.002715` |
-| 8 | `1.000244 +/- 0.004563` | `1.000000 +/- 0.003802` | `0.999715 +/- 0.003854` | `0.753906` | `0.505859` | `0.002421 +/- 0.001509` | `0.029344 +/- 0.000504` |
-
-Qualitative takeaway: paper-faithful `full_kv` tends to break hidden and transport metrics before logit-style scores vs `key_only_random`. KV savings are real, but the K-only path is more stable at low bits.
-
-Interactive plots:
-
-- [attention_tradeoffs_captured.html](artifacts/paper_baseline/qwen_captured_full_bf16/plots/attention_tradeoffs_captured.html)
-- [attention_runtime_tradeoffs_captured.html](artifacts/paper_baseline/qwen_captured_full_bf16/plots/attention_runtime_tradeoffs_captured.html)
-
-![Paper baseline trade-offs](artifacts/paper_baseline/qwen_captured_reported/plots/attention_tradeoffs_captured.png)
-
-![Paper baseline mean +/- SD](artifacts/paper_baseline/qwen_captured_reported/plots/attention_mean_pm_sd_captured.png)
-
-## Triality Advantage Figures
-
-![Triality Pareto](artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_advantage_pareto_hidden_memory.png)
-
-![Triality grouped hidden](artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_advantage_grouped_hidden.png)
-
-![Triality delta hidden](artifacts/research_extension/triality_full_eval_prod_bf16/plots/triality_advantage_delta_hidden.png)
-
-Regenerate with:
-
-```powershell
-uv run python scripts\plot_triality_advantage.py
-```
-
-## Validation Policy
-
-This repo is intentionally strict about how results are reported.
-
-- Stage 1 and Stage 2 stay conceptually distinct
-- exact-score and estimated-score are not collapsed into a single label
-- reconstruction metrics stay separate from attention/logit metrics
-- hidden-state transport matters; logit quality alone is not treated as enough
-- runtime claims are made only when the runtime path itself is measured
-
-That means this repo is comfortable saying:
-
-- **memory reduction is real**
-- **score-like behavior can remain strong**
-
-but it does **not** automatically claim:
-
-- hidden-state neutrality everywhere
-- runtime superiority from replay-only evidence
-- universal portability across all model and runtime stacks
+- a finished fused packed-weight CUDA kernel
+- a final optimized `TQ4_1S -> q8_0 scratch + cuBLAS` implementation
+- that every research branch should become a production default
+- that replay-only evidence is the same as end-to-end runtime evidence
 
 ## Build Contract
 
-This checkout is intended to stay aligned with two external anchors:
-
-- [zapabob/Turboquant-CUDA](https://github.com/zapabob/Turboquant-CUDA) for PyTorch / offline quantization semantics
-- vendored [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) at `zapabob/llama.cpp` for GGUF / runtime consumption
-
-Rules:
-
-- `.gitmodules` must keep `zapabob/llama.cpp` pinned to the zapabob fork
-- Rust and Hypura builds must use the vendored runtime, or an explicitly compatible checkout
-- the top-level `tq_*` GGUF metadata arrays are the canonical export contract for current loaders
+- the vendored runtime is pinned through `.gitmodules` to `zapabob/llama.cpp`
+- exported GGUF metadata is expected to preserve the current `tq_*` and `hypura.turboquant.*` contract surfaces
 - repo integrity is checked by `repo_contract.toml` and `scripts\validate_repo_contract.py`
-
-Recommended validation:
-
-```powershell
-uv run python scripts\validate_repo_contract.py
-.\scripts\run_production_tests.ps1
-```
-
-## Key Scripts
-
-| Script | Purpose |
-| --- | --- |
-| `scripts\capture_qwen_kv.py` | Capture Qwen3.5-9B KV artifacts |
-| `scripts\paper_validate_synthetic.py` | Synthetic paper-baseline validation |
-| `scripts\paper_validate_captured_qwen.py` | Captured paper-baseline replay |
-| `scripts\validate_qwen_3060_matrix.py` | Reduced real 12 GB comparison matrix |
-| `scripts\export_report.py` | Export markdown, tables, and plots from offline matrix outputs |
-| `scripts\eval_hf_online_qwen.py` | Hugging Face online diagnostic evaluation |
-| `scripts\eval_runtime_qwen.py` | Runtime benchmark and audit entrypoint |
-| `scripts\export_online_eval_report.py` | Aggregate replay, HF, and runtime outputs |
-| `scripts\pack_turboquant_gguf.py` | Embed TurboQuant metadata into GGUF |
-| `scripts\run_turboquant_studio.py` | Start the local FastAPI Studio backend |
-
-## Additional Research Flows
-
-If you are not starting from the 12 GB mainline, the main secondary flows are:
-
-- triality train/eval:
-  - `scripts\research_train_k_triality.py`
-  - `scripts\research_validate_k_triality.py`
-  - `scripts\run_triality_full_pipeline.py`
-  - `scripts\plot_triality_advantage.py`
-- multiscreen + mixed-bit evaluation:
-  - `scripts\research_validate_multiscreen_kv.py`
-  - `scripts\research_vram_multigroup_qwen.py`
-- value-codec experiments:
-  - `scripts\research_validate_v_codecs.py`
-  - `scripts\research_value_sensitivity.py`
+- runtime-facing README claims are limited to paths that were actually loaded or measured
 
 ## Related Repositories
 
@@ -457,21 +307,6 @@ If you are not starting from the 12 GB mainline, the main secondary flows are:
 | [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) | Runtime GGUF loader and serving path |
 | [zapabob/Hypura](https://github.com/zapabob/Hypura) | Tiered inference / serving integration target |
 | [zapabob/multiscreen-pytorch](https://github.com/zapabob/multiscreen-pytorch) | Multiscreen reference implementation used in the relevance path |
-
-## Contributing GPU Results
-
-Additional GPU runs are welcome, especially:
-
-- RTX 3080 Ti / 3090 / 4090 / 5090
-- RDNA4 HIP / ROCm paths
-- Apple M-series MPS / Metal paths
-
-The most useful artifacts are:
-
-- PPL outputs
-- hidden / attention / logit comparison tables
-- decode throughput
-- VRAM / KV footprint measurements
 
 ## License
 

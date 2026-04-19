@@ -250,6 +250,14 @@ def fit_triality_proxy_rotations(
                 exact_logits = torch.einsum("...qd,...sd->...qs", queries, keys)
                 metrics = summarize_attention_scores(exact_logits, estimated_logits)
                 rotation = proxy.quantizer.mse_quantizer.rotation.detach().cpu()
+                ortho_err, det_err_max = so8_block_diagonal_rotation_metrics(rotation)
+                metadata = {
+                    **metadata,
+                    "orthogonality_error": float(ortho_err),
+                    "determinant_error_max": float(det_err_max),
+                    "rotation_block_size": 8,
+                    "view_bundle_complete": True,
+                }
                 artifacts.append(
                     TrialityRotationArtifact(
                         layer_idx=layer_idx,
@@ -261,7 +269,6 @@ def fit_triality_proxy_rotations(
                         metadata=metadata,
                     )
                 )
-                ortho_err, det_err_max = so8_block_diagonal_rotation_metrics(rotation)
                 row = {
                     "layer": layer_idx,
                     "bits": float(bit_value),
