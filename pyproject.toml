@@ -16,6 +16,7 @@ dependencies = [
   "pandas>=2.2",
   "plotly>=6.0",
   "pydantic>=2.10",
+  "pyyaml>=6.0",
   "scipy>=1.14",
   "tqdm>=4.67",
   "uvicorn>=0.34",
