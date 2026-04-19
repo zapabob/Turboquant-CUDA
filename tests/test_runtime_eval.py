@@ -24,7 +24,7 @@ from turboquant.runtime_eval import (
 
 def test_build_llama_perplexity_command_includes_expected_flags() -> None:
     command = build_llama_perplexity_command(
-        binary_path=Path("vendor/llama.cpp/build/bin/llama-perplexity.exe"),
+        binary_path=Path("zapabob/llama.cpp/build/bin/llama-perplexity.exe"),
         model_path=Path("models/qwen.gguf"),
         corpus_path=Path("data/wiki.test.raw"),
         context_size=512,
@@ -41,7 +41,7 @@ def test_build_llama_perplexity_command_includes_expected_flags() -> None:
 
 def test_build_llama_bench_command_requests_json_output() -> None:
     command = build_llama_bench_command(
-        binary_path=Path("vendor/llama.cpp/build/bin/llama-bench.exe"),
+        binary_path=Path("zapabob/llama.cpp/build/bin/llama-bench.exe"),
         model_path=Path("models/qwen.gguf"),
         repetitions=3,
         threads=4,
@@ -56,7 +56,7 @@ def test_build_llama_bench_command_requests_json_output() -> None:
 
 def test_build_llama_server_command_includes_alias_and_gpu_layers() -> None:
     command = build_llama_server_command(
-        binary_path=Path("vendor/llama.cpp/build/bin/llama-server.exe"),
+        binary_path=Path("zapabob/llama.cpp/build/bin/llama-server.exe"),
         model_path=Path("models/qwen.gguf"),
         host="127.0.0.1",
         port=8080,

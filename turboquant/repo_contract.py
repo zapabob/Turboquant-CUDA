@@ -161,7 +161,7 @@ def validate_gitmodules(contract: RepositoryContract) -> list[str]:
         )
     if contract.sources.llama_cpp_url not in gitmodules:
         errors.append(
-            f".gitmodules does not point vendor/llama.cpp at '{contract.sources.llama_cpp_url}'."
+            f".gitmodules does not point {contract.paths.vendored_llama_cpp.as_posix()} at '{contract.sources.llama_cpp_url}'."
         )
     return errors
 
@@ -186,11 +186,11 @@ def validate_vendor_remote(contract: RepositoryContract) -> list[str]:
         ).stdout.strip()
     except subprocess.CalledProcessError as exc:
         message = exc.stderr.strip() or exc.stdout.strip() or "unknown git error"
-        return [f"Failed to read vendor/llama.cpp origin remote: {message}"]
+        return [f"Failed to read {contract.paths.vendored_llama_cpp.as_posix()} origin remote: {message}"]
 
     if origin != contract.sources.llama_cpp_url:
         return [
-            "vendor/llama.cpp origin remote is "
+            f"{contract.paths.vendored_llama_cpp.as_posix()} origin remote is "
             f"'{origin}', expected '{contract.sources.llama_cpp_url}'."
         ]
     return []

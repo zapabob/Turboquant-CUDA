@@ -13,12 +13,12 @@ Paper-faithful TurboQuant prototype for KV-cache compression experiments on Qwen
 Treat this workspace as a downstream integration repo that must stay aligned with:
 
 - `zapabob/Turboquant-CUDA` for PyTorch / offline TurboQuant semantics
-- `zapabob/llama.cpp` for the vendored GGUF / runtime path at `vendor/llama.cpp`
+- `zapabob/llama.cpp` for the vendored GGUF / runtime path at `zapabob/llama.cpp`
 
 Operational rules:
 
-- `.gitmodules` must keep `vendor/llama.cpp` pinned to `https://github.com/zapabob/llama.cpp.git`.
-- Rust / Hypura builds should use `vendor/llama.cpp` by default; `LLAMA_CPP_DIR` and `HYPURA_LLAMA_CPP_DIR` are only for compatible `zapabob/llama.cpp` mirrors/checkouts.
+- `.gitmodules` must keep `zapabob/llama.cpp` pinned to `https://github.com/zapabob/llama.cpp.git`.
+- Rust / Hypura builds should use `zapabob/llama.cpp` by default; `LLAMA_CPP_DIR` and `HYPURA_LLAMA_CPP_DIR` are only for compatible `zapabob/llama.cpp` mirrors/checkouts.
 - A compatible checkout must still expose the TurboQuant runtime files `src/llama-turboquant.h` and `src/llama-turboquant.cpp` with the expected TurboQuant / triality symbols.
 - Before claiming the repo is in a good build state, run `uv run python scripts\validate_repo_contract.py`.
 
@@ -94,7 +94,7 @@ uv run python scripts\research_validate_k_triality.py --resume --output-dir arti
 # Vector-only Triality (no multiscreen): add key_only_block_so8_triality_vector and same --rotation-dir if not default.
 
 # Rust workspace (Hypura + llama.cpp FFI): semantic versions hypura 0.7.0 / hypura-sys 0.7.0 / kobold_gguf_gui 0.2.0; incremental in rust/.cargo/config.toml
-# Mirror copy: `C:\Users\downl\Desktop\hypura-main\hypura-main` (same workspace + `vendor/llama.cpp`). Override llama path: `LLAMA_CPP_DIR` or `HYPURA_LLAMA_CPP_DIR`.
+# Mirror copy: `C:\Users\downl\Desktop\hypura-main\hypura-main` (same workspace + `zapabob/llama.cpp`). Override llama path: `LLAMA_CPP_DIR` or `HYPURA_LLAMA_CPP_DIR`.
 # cd rust; $env:HYPURA_NO_CUDA=1; cargo build -p hypura   # CPU-only check without CUDA toolkit
 .\scripts\build_rust_workspace.ps1 -Package hypura -NoCuda
 # If H:\ is low on space, redirect artifacts:
@@ -136,7 +136,7 @@ Schema helpers in `turboquant.schema`: `build_*_config`, `read_turboquant_config
 - `artifacts/paper_baseline/` — paper baseline validation results
 - `artifacts/kv_4bit/` (or your capture root) — captured KV tensors (`layer_*_{key,value}.pt` + `capture_manifest.json`)
 - `artifacts/research_extension/` — research eval outputs (incl. `multiscreen_kv/`, `vram_multigroup/` from VRAM comparison script)
-- `rust/hypura`, `rust/hypura-sys`, `rust/kobold_gguf_gui` — Hypura + Kobold互換GUI（`vendor/llama.cpp` または `LLAMA_CPP_DIR`）。GGUF切替はGUIの Recent + `%APPDATA%\hypura\kobold_gguf_gui_settings.json`
+- `rust/hypura`, `rust/hypura-sys`, `rust/kobold_gguf_gui` — Hypura + Kobold互換GUI（`zapabob/llama.cpp` または `LLAMA_CPP_DIR`）。GGUF切替はGUIの Recent + `%APPDATA%\hypura\kobold_gguf_gui_settings.json`
 
 ### References (external)
 - [Screening Is Enough](https://www.alphaxiv.org/abs/2604.01178) — Multiscreen / screening background (repo stays dependency-free; logic in `turboquant.research_extension.multiscreen_kv`).

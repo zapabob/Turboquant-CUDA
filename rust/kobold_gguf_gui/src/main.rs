@@ -1,6 +1,6 @@
 //! GUI: pick GGUF + `llama-server` binary, spawn backend, expose Kobold-compatible HTTP proxy.
 //!
-//! Build `llama-server` from `vendor/llama.cpp` (CMake), then point **Llama server exe** at
+//! Build `llama-server` from `zapabob/llama.cpp` (CMake), then point **Llama server exe** at
 //! `build\bin\llama-server.exe` (path may vary). Settings persist under the OS config dir:
 //! `hypura/kobold_gguf_gui_settings.json` (e.g. `%APPDATA%\hypura\` on Windows).
 

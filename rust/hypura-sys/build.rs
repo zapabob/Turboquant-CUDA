@@ -2,7 +2,8 @@ use std::env;
 use std::path::PathBuf;
 
 /// Resolve a zapabob/llama.cpp-compatible checkout: env override, then
-/// workspace-local `vendor/`, then hub layout `rust/../vendor/`.
+/// workspace-local `zapabob/`, then compatibility fallbacks for older `vendor/`
+/// layouts.
 fn resolve_llama_cpp_dir(manifest_dir: &str) -> PathBuf {
     for key in ["LLAMA_CPP_DIR", "HYPURA_LLAMA_CPP_DIR"] {
         if let Ok(p) = env::var(key) {
@@ -13,6 +14,8 @@ fn resolve_llama_cpp_dir(manifest_dir: &str) -> PathBuf {
         }
     }
     let candidates = [
+        PathBuf::from(manifest_dir).join("../zapabob/llama.cpp"),
+        PathBuf::from(manifest_dir).join("../../zapabob/llama.cpp"),
         PathBuf::from(manifest_dir).join("../vendor/llama.cpp"),
         PathBuf::from(manifest_dir).join("../../vendor/llama.cpp"),
     ];
@@ -22,7 +25,7 @@ fn resolve_llama_cpp_dir(manifest_dir: &str) -> PathBuf {
         }
     }
     panic!(
-        "zapabob/llama.cpp-compatible checkout not found. Set LLAMA_CPP_DIR or HYPURA_LLAMA_CPP_DIR, or place vendor/llama.cpp (tried {:?})",
+        "zapabob/llama.cpp-compatible checkout not found. Set LLAMA_CPP_DIR or HYPURA_LLAMA_CPP_DIR, or place zapabob/llama.cpp (tried {:?})",
         candidates
     );
 }

@@ -8,7 +8,7 @@ export function ServeTab({
 }: {
   onSubmitJob: (endpoint: string, payload: Record<string, unknown>, dryRun: boolean) => Promise<void>;
 }): JSX.Element {
-  const [serverBin, setServerBin] = useState("vendor/llama.cpp/build/bin/Release/llama-server.exe");
+  const [serverBin, setServerBin] = useState("zapabob/llama.cpp/build/bin/Release/llama-server.exe");
   const [modelPath, setModelPath] = useState("artifacts/models/qwen-runtime-turboquant.gguf");
   const [ggufPath, setGgufPath] = useState("artifacts/models/qwen-runtime-turboquant.gguf");
   const [port, setPort] = useState("8080");

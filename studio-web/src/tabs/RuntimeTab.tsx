@@ -14,8 +14,8 @@ export function RuntimeTab({
   const [mode, setMode] = useState("exact");
   const [modelPath, setModelPath] = useState("artifacts/qwen-runtime/model.gguf");
   const [outputDir, setOutputDir] = useState("artifacts/runtime_eval");
-  const [serverBin, setServerBin] = useState("vendor/llama.cpp/build/bin/Release/llama-server.exe");
-  const [llamaBenchBin, setLlamaBenchBin] = useState("vendor/llama.cpp/build/bin/Release/llama-bench.exe");
+  const [serverBin, setServerBin] = useState("zapabob/llama.cpp/build/bin/Release/llama-server.exe");
+  const [llamaBenchBin, setLlamaBenchBin] = useState("zapabob/llama.cpp/build/bin/Release/llama-bench.exe");
   const [runtimeProfile, setRuntimeProfile] = useState(setup?.runtime_profiles[0] ?? "");
   const [validationMessage, setValidationMessage] = useState("Runtime evaluation stays dry-run previewable before execution.");
 

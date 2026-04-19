@@ -339,11 +339,11 @@ but it does **not** automatically claim:
 This checkout is intended to stay aligned with two external anchors:
 
 - [zapabob/Turboquant-CUDA](https://github.com/zapabob/Turboquant-CUDA) for PyTorch / offline quantization semantics
-- vendored [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) at `vendor/llama.cpp` for GGUF / runtime consumption
+- vendored [zapabob/llama.cpp](https://github.com/zapabob/llama.cpp) at `zapabob/llama.cpp` for GGUF / runtime consumption
 
 Rules:
 
-- `.gitmodules` must keep `vendor/llama.cpp` pinned to the zapabob fork
+- `.gitmodules` must keep `zapabob/llama.cpp` pinned to the zapabob fork
 - Rust and Hypura builds must use the vendored runtime, or an explicitly compatible checkout
 - the top-level `tq_*` GGUF metadata arrays are the canonical export contract for current loaders
 - repo integrity is checked by `repo_contract.toml` and `scripts\validate_repo_contract.py`

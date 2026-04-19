@@ -104,7 +104,7 @@ class HypuraTurboQuantBridgeConfig:
 
 
 def import_vendor_gguf() -> ModuleType:
-    """Import the vendored `gguf-py` package shipped with `vendor/llama.cpp`."""
+    """Import the vendored `gguf-py` package shipped with the zapabob llama.cpp checkout."""
 
     module_path = Path(__file__).resolve()
     candidate_dirs: list[Path] = []
@@ -114,8 +114,10 @@ def import_vendor_gguf() -> ModuleType:
             candidate_dirs.append(Path(env_value) / "gguf-py")
     candidate_dirs.extend(
         [
+            module_path.parents[1] / "zapabob" / "llama.cpp" / "gguf-py",
             module_path.parents[1] / "vendor" / "llama.cpp" / "gguf-py",
             module_path.parents[2] / "llama.cpp" / "gguf-py",
+            module_path.parents[3] / "zapabob" / "llama.cpp" / "gguf-py",
             module_path.parents[3] / "vendor" / "llama.cpp" / "gguf-py",
         ]
     )

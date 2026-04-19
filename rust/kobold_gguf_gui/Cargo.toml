@@ -2,7 +2,7 @@
 name = "kobold_gguf_gui"
 version = "0.2.0"
 edition = "2021"
-description = "KoboldCpp-compatible HTTP proxy + GUI; drives llama-server (build from vendor/llama.cpp)."
+description = "KoboldCpp-compatible HTTP proxy + GUI; drives llama-server (build from zapabob/llama.cpp)."
 license = "MIT"
 
 [dependencies]

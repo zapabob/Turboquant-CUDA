@@ -110,8 +110,8 @@ def test_runtime_eval_dry_run_returns_manifest_preview(tmp_path: Path) -> None:
             json={
                 "mode": "exact",
                 "model_path": "artifacts/models/qwen.gguf",
-                "server_bin": "vendor/llama.cpp/build/bin/Release/llama-server.exe",
-                "llama_bench_bin": "vendor/llama.cpp/build/bin/Release/llama-bench.exe",
+                "server_bin": "zapabob/llama.cpp/build/bin/Release/llama-server.exe",
+                "llama_bench_bin": "zapabob/llama.cpp/build/bin/Release/llama-bench.exe",
                 "output_dir": "artifacts/runtime_eval",
                 "dry_run": True,
             },
@@ -170,8 +170,8 @@ def test_preview_builders_preserve_cli_contract() -> None:
         RuntimeEvalSpec(
             mode="exact",
             model_path="artifacts/models/qwen.gguf",
-            server_bin="vendor/llama.cpp/build/bin/Release/llama-server.exe",
-            llama_bench_bin="vendor/llama.cpp/build/bin/Release/llama-bench.exe",
+            server_bin="zapabob/llama.cpp/build/bin/Release/llama-server.exe",
+            llama_bench_bin="zapabob/llama.cpp/build/bin/Release/llama-bench.exe",
             output_dir="artifacts/runtime_eval",
         )
     )

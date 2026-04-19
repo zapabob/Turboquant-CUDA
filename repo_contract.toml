@@ -5,14 +5,19 @@ llama_cpp_name = "zapabob/llama.cpp"
 llama_cpp_url = "https://github.com/zapabob/llama.cpp.git"
 
 [paths]
-vendored_llama_cpp = "vendor/llama.cpp"
+vendored_llama_cpp = "zapabob/llama.cpp"
 rust_build_script = "rust/hypura-sys/build.rs"
 readme = "README.md"
 claude = "CLAUDE.md"
 
 [rust]
 llama_cpp_env_vars = ["LLAMA_CPP_DIR", "HYPURA_LLAMA_CPP_DIR"]
-llama_cpp_candidate_suffixes = ["../vendor/llama.cpp", "../../vendor/llama.cpp"]
+llama_cpp_candidate_suffixes = [
+  "../zapabob/llama.cpp",
+  "../../zapabob/llama.cpp",
+  "../vendor/llama.cpp",
+  "../../vendor/llama.cpp",
+]
 
 [llama_cpp_compat]
 required_header = "src/llama-turboquant.h"
