@@ -17,6 +17,7 @@ TRIALITY_GGUF_SCHEMA_VERSION = 1
 TRIALITY_GGUF_PAYLOAD_FORMAT = "json-inline-v1"
 TRIALITY_GGUF_NAMESPACE = "hypura.turboquant"
 TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES = ("bf16", "f16", "q8_0")
+TRIALITY_WEIGHT_ALLOWED_TENSOR_CODECS = ("tq4_1s", "q4_k", "q8_0")
 TRIALITY_ALLOWED_MODES: tuple[TrialityPublicMode, ...] = (
     "paper-faithful",
     TRIALITY_PROXY_PARETO_MODE,
@@ -284,8 +285,24 @@ def validate_weight_plan(
     tensor_plan = weight_plan.get("tensor_plan")
     if not isinstance(tensor_plan, dict) or not tensor_plan:
         raise ValueError("weight_plan.tensor_plan must be a non-empty object")
-    if tensor_plan != expected_weight_plan["tensor_plan"]:
-        raise ValueError("weight_plan.tensor_plan does not match the expected Triality TQ4_1S plan")
+    for tensor_name, tensor_codec in tensor_plan.items():
+        if not isinstance(tensor_name, str) or not tensor_name.strip():
+            raise ValueError("weight_plan.tensor_plan keys must be non-empty strings")
+        normalized_codec = str(tensor_codec).strip().lower()
+        if normalized_codec not in TRIALITY_WEIGHT_ALLOWED_TENSOR_CODECS:
+            raise ValueError(
+                "Unsupported weight_plan.tensor_plan codec "
+                f"{tensor_codec!r}; expected one of {', '.join(TRIALITY_WEIGHT_ALLOWED_TENSOR_CODECS)}"
+            )
+    if "tq4_1s" not in {str(codec).strip().lower() for codec in tensor_plan.values()}:
+        raise ValueError("weight_plan.tensor_plan must include at least one tq4_1s target")
+    default_tensor_plan = expected_weight_plan["tensor_plan"]
+    unknown_tensor_names = set(tensor_plan) - set(default_tensor_plan)
+    if unknown_tensor_names:
+        raise ValueError(
+            "weight_plan.tensor_plan contains unsupported tensor selectors: "
+            + ", ".join(sorted(str(name) for name in unknown_tensor_names))
+        )
 
 
 def resolve_triality_mode_spec(mode: str) -> TrialityModeSpec:

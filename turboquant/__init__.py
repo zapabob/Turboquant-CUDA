@@ -71,6 +71,7 @@ from turboquant.triality_contract import (
 from turboquant.turboquant_mse import TurboQuantMSE
 from turboquant.turboquant_prod import TurboQuantProd
 from turboquant.types import TurboQuantMSEConfig, TurboQuantProdConfig
+from turboquant.weight_gguf import WeightGGUFConversionSummary, convert_weight_turboquant_gguf
 
 __all__ = [
     "ChannelBitAllocation",
@@ -137,4 +138,6 @@ __all__ = [
     "validate_paper_turboquant_config",
     "validate_research_turboquant_config",
     "write_turboquant_config",
+    "WeightGGUFConversionSummary",
+    "convert_weight_turboquant_gguf",
 ]
