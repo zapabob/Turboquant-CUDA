@@ -35,11 +35,16 @@ from turboquant.triality_contract import (
     TRIALITY_PROXY_PARETO_MODE,
     TRIALITY_RUNTIME_MODE,
     TRIALITY_RUNTIME_MODE_ALIASES,
+    TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
+    TRIALITY_RUNTIME_MODE_MINUS,
+    TRIALITY_RUNTIME_MODE_PLUS,
+    TRIALITY_SUPPORTED_RUNTIME_MODES,
     build_triality_metadata,
     build_triality_payload,
     normalize_triality_runtime_mode,
     normalize_triality_view,
     payload_json_dumps,
+    triality_runtime_mode_for_view,
     validate_triality_metadata,
 )
 
@@ -560,12 +565,18 @@ def build_hypura_bridge_config(profile: TurboQuantGGUFProfile) -> HypuraTurboQua
     """Map an embedded TurboQuant profile to the legacy Hypura GGUF compatibility bridge."""
 
     if profile.kind == "triality_proxy_vector":
+        triality_view = normalize_triality_view(
+            str(profile.metadata.get("triality_view", PRODUCTION_K_TURBOQUANT_VIEW))
+        )
+        runtime_mode = normalize_triality_runtime_mode(
+            str(profile.metadata.get("triality_mode", triality_runtime_mode_for_view(triality_view)))
+        )
         rotation_seed = int(profile.metadata.get("rotation_seed", 0))
         return HypuraTurboQuantBridgeConfig(
             source_profile=profile.name,
-            mode=TRIALITY_RUNTIME_MODE,
+            mode=runtime_mode,
             rotation_policy="triality_vector",
-            triality_view=PRODUCTION_K_TURBOQUANT_VIEW,
+            triality_view=triality_view,
             rotation_seed=rotation_seed,
         )
     if profile.kind == "paper_faithful":
@@ -623,7 +634,16 @@ def build_hypura_serve_command(
     if context <= 0:
         raise ValueError(f"context must be positive, got {context}")
 
-    supported_modes = {"exact", "paper-key-only", "paper-full-kv", "research-kv-split", TRIALITY_RUNTIME_MODE}
+    supported_modes = {
+        "exact",
+        "paper-key-only",
+        "paper-full-kv",
+        "research-kv-split",
+        TRIALITY_RUNTIME_MODE,
+        TRIALITY_RUNTIME_MODE_PLUS,
+        TRIALITY_RUNTIME_MODE_MINUS,
+        TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
+    }
     if turboquant_mode == "gguf-auto":
         bridge = read_hypura_gguf_bridge_config(gguf_path)
         if bridge is None:
@@ -637,7 +657,8 @@ def build_hypura_serve_command(
     else:
         raise ValueError(
             "Unsupported Hypura turboquant_mode. Expected one of "
-            "'gguf-auto', 'exact', 'paper-key-only', 'paper-full-kv', or 'research-kv-split'."
+            "'gguf-auto', 'exact', 'paper-key-only', 'paper-full-kv', "
+            "'research-kv-split', or one of the Triality runtime modes."
         )
 
     command = ["cargo", "run"]

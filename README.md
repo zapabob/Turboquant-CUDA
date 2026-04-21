@@ -3,9 +3,9 @@
 **TL;DR:** this is a Windows-first, offline-first TurboQuant research workspace that measures what usually gets hand-waved away: not just reconstruction, but hidden-state transport, attention behavior, GGUF packaging, and whether `TQ4_1S` / Triality artifacts actually survive the trip into a real `llama.cpp` runtime.
 
 - **Best current K-side practical line:** `key_only_block_so8_triality_vector`
-- **Best current story for readers:** reproducible RTX 3060 12 GB evidence, deterministic fixture export, and a vendored `zapabob/llama.cpp` that can now load real `TQ4_1S` GGUFs
-- **What is already implemented here:** offline TurboQuant replay, Triality + learned SO(8) research/export, GGUF metadata/contract packaging, `TQ4_1S` converter/export, and CPU/CUDA-staged runtime loading in vendored `llama.cpp`
-- **What is not claimed here:** a fused packed-weight CUDA kernel, a finished native `TQ4_1S -> q8_0 scratch` fast path, or universal runtime wins across every model/runtime stack
+- **Best current story for readers:** reproducible RTX 3060 12 GB evidence, deterministic fixture export, and a vendored `zapabob/llama.cpp` that can now load and execute real `TQ4_1S` GGUFs on CPU and CUDA
+- **What is already implemented here:** offline TurboQuant replay, Triality + learned SO(8) research/export, GGUF metadata/contract packaging, `TQ4_1S` converter/export, large-batch CUDA `q8_0` scratch staging, and a fused packed-weight CUDA path for small decode in vendored `llama.cpp`
+- **What is not claimed here:** universal runtime wins across every model/runtime stack, a fully profiled final routing policy, or that the current CUDA line is the last word on TurboQuant performance
 - **Why this repo exists:** to keep research-faithful math, artifact contracts, and runtime integration in one place instead of treating them as separate hand-wavy projects
 
 ![Qwen 3060 quality summary](_docs/assets/qwen_3060_matrix_attention.png)
@@ -39,17 +39,21 @@ The latest implementation wave made the repo much closer to a full research-to-r
 - **Byte-exact `TQ4_1S` export path**
   - Python GGUF export was aligned to the `llama.cpp` reference math and validated against real Gemma 4 artifacts.
 - **Real `TQ4_1S` loadability in vendored `llama.cpp`**
-  - `GGML_TYPE_TQ4_1S` is now loadable on CPU and through the current staged CUDA path in the vendored runtime.
+  - `GGML_TYPE_TQ4_1S` is now loadable on CPU, through the staged CUDA path for large batches, and through the fused CUDA decode line for small batches in the vendored runtime.
 - **Triality shared ABI hardening**
   - canonical naming, alias normalization, and stricter fail-closed metadata checks now reject incomplete artifacts instead of quietly accepting them.
 - **Learned SO(8) export with explicit validity metrics**
   - orthogonality and determinant metrics are now carried through the Triality metadata line.
+- **CUDA runtime closeout for `TQ4_1S`**
+  - the vendored runtime now has a dedicated `TQ4_1S -> q8_0` scratch path for large batches, a fused packed-weight CUDA path for small decode, and real Gemma 4 CUDA smoke verification on this PC.
 
 Implementation logs:
 
 - [`_docs/2026-04-19_tq4_1s-python-e2e-byte-exact-and-real-gemma4-validation.md`](_docs/2026-04-19_tq4_1s-python-e2e-byte-exact-and-real-gemma4-validation.md)
 - [`_docs/2026-04-19_llama_cpp_tq4_1s_ggml_loadable_path.md`](_docs/2026-04-19_llama_cpp_tq4_1s_ggml_loadable_path.md)
 - [`_docs/2026-04-20_triality-shared-abi-and-fail-closed-runtime.md`](_docs/2026-04-20_triality-shared-abi-and-fail-closed-runtime.md)
+- [`_docs/2026-04-21_triality-views-and-tq4_1s-q8_0-scratch-kernel.md`](_docs/2026-04-21_triality-views-and-tq4_1s-q8_0-scratch-kernel.md)
+- [`_docs/2026-04-21_tq4_1s_fused_cuda_closeout.md`](_docs/2026-04-21_tq4_1s_fused_cuda_closeout.md)
 
 ## Current Mainline
 
@@ -98,7 +102,18 @@ At this point, the repo has three clear layers.
 | --- | --- | --- |
 | Offline research | paper-faithful Stage 1 / Stage 2, captured replay, Triality / SO(8), hidden and attention metrics | not every research branch is promoted to production defaults |
 | Artifact contract | GGUF packaging, `hypura.turboquant.*`, `hypura.turboquant.weight.*`, deterministic fixture export, real Gemma 4 multimodal-safe guards | weight codec policy is ahead of fully optimized weight runtime kernels |
-| Runtime path | vendored `zapabob/llama.cpp` can load real `TQ4_1S` GGUFs on CPU and the current staged CUDA line | no fused packed-weight CUDA kernel yet, and no claim that staged CUDA is the final performance architecture |
+| Runtime path | vendored `zapabob/llama.cpp` can load real `TQ4_1S` GGUFs on CPU, use a dedicated `q8_0` scratch CUDA path for large batches, and use a fused packed-weight CUDA path for small decode | no claim that the current CUDA routing thresholds or kernel mix are the final performance architecture |
+
+## CUDA Closeout Snapshot
+
+The current CUDA story is now concrete enough to state plainly:
+
+- **Large prefill / large batch:** contiguous `TQ4_1S` weights route through `TQ4_1S -> q8_0 scratch -> fp16 -> cuBLAS`
+- **Small decode:** contiguous `TQ4_1S` weights can use the fused packed-weight CUDA MMVQ path
+- **Shared ABI:** Triality `vector`, `spinor_plus_proxy`, and `spinor_minus_proxy` stay fail-closed and metadata-complete
+- **Real-model smoke:** the Gemma 4 `TQ4_1S` GGUF loads on this PC with `type tq4_1s: 228 tensors`, `ngl 99`, and completed `pp1` / `tg1` CUDA runs
+
+For the full closeout commands and verification output, see [`_docs/2026-04-21_tq4_1s_fused_cuda_closeout.md`](_docs/2026-04-21_tq4_1s_fused_cuda_closeout.md).
 
 ## Eval Output Layout
 

@@ -11,19 +11,48 @@ from turboquant.schema import build_paper_turboquant_config
 TRIALITY_PROXY_PARETO_MODE = "triality-proxy-so8-pareto"
 TRIALITY_PROXY_PARETO_LEGACY_ALIAS = "triality-so8-pareto"
 TRIALITY_RUNTIME_MODE = "key_only_block_so8_triality_vector"
-TRIALITY_RUNTIME_MODE_ALIASES = (
-    TRIALITY_RUNTIME_MODE,
-    "triality_vector",
-    "triality-vector",
-    "research-kv-split",
-)
+TRIALITY_RUNTIME_MODE_PLUS = "key_only_block_so8_triality_plus"
+TRIALITY_RUNTIME_MODE_MINUS = "key_only_block_so8_triality_minus"
+TRIALITY_RUNTIME_MODE_BEST_PER_LAYER = "key_only_block_so8_triality_best_per_layer"
+TRIALITY_RUNTIME_MODE_ALIASES = {
+    TRIALITY_RUNTIME_MODE: TRIALITY_RUNTIME_MODE,
+    "triality_vector": TRIALITY_RUNTIME_MODE,
+    "triality-vector": TRIALITY_RUNTIME_MODE,
+    "research-kv-split": TRIALITY_RUNTIME_MODE,
+    TRIALITY_RUNTIME_MODE_PLUS: TRIALITY_RUNTIME_MODE_PLUS,
+    "triality_plus": TRIALITY_RUNTIME_MODE_PLUS,
+    "triality-plus": TRIALITY_RUNTIME_MODE_PLUS,
+    "spinor_plus_proxy": TRIALITY_RUNTIME_MODE_PLUS,
+    "spinor-plus-proxy": TRIALITY_RUNTIME_MODE_PLUS,
+    TRIALITY_RUNTIME_MODE_MINUS: TRIALITY_RUNTIME_MODE_MINUS,
+    "triality_minus": TRIALITY_RUNTIME_MODE_MINUS,
+    "triality-minus": TRIALITY_RUNTIME_MODE_MINUS,
+    "spinor_minus_proxy": TRIALITY_RUNTIME_MODE_MINUS,
+    "spinor-minus-proxy": TRIALITY_RUNTIME_MODE_MINUS,
+    TRIALITY_RUNTIME_MODE_BEST_PER_LAYER: TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
+    "triality_best_per_layer": TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
+    "triality-best-per-layer": TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
+    "best_per_layer": TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
+}
 TRIALITY_VIEW_ALIASES = {
+    "none": "none",
     "vector": "vector",
     "spinor_plus_proxy": "spinor_plus_proxy",
     "plus": "spinor_plus_proxy",
     "spinor_minus_proxy": "spinor_minus_proxy",
     "minus": "spinor_minus_proxy",
 }
+TRIALITY_RUNTIME_MODE_BY_VIEW = {
+    "vector": TRIALITY_RUNTIME_MODE,
+    "spinor_plus_proxy": TRIALITY_RUNTIME_MODE_PLUS,
+    "spinor_minus_proxy": TRIALITY_RUNTIME_MODE_MINUS,
+}
+TRIALITY_SUPPORTED_RUNTIME_MODES = (
+    TRIALITY_RUNTIME_MODE,
+    TRIALITY_RUNTIME_MODE_PLUS,
+    TRIALITY_RUNTIME_MODE_MINUS,
+    TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
+)
 TRIALITY_ROTATION_BLOCK_SIZE = 8
 
 TrialityPublicMode = Literal["paper-faithful", "triality-proxy-so8-pareto", "triality-so8-pareto"]
@@ -94,8 +123,37 @@ def normalize_triality_view(view: str) -> str:
 
 def normalize_triality_runtime_mode(runtime_mode: str) -> str:
     normalized_mode = runtime_mode.strip().lower().replace("-", "_")
-    alias_map = {alias.replace("-", "_"): TRIALITY_RUNTIME_MODE for alias in TRIALITY_RUNTIME_MODE_ALIASES}
+    alias_map = {alias.replace("-", "_"): target for alias, target in TRIALITY_RUNTIME_MODE_ALIASES.items()}
     return alias_map.get(normalized_mode, runtime_mode)
+
+
+def triality_runtime_mode_for_view(view: str) -> str:
+    normalized_view = normalize_triality_view(view)
+    return TRIALITY_RUNTIME_MODE_BY_VIEW[normalized_view]
+
+
+def validate_triality_runtime_pair(
+    *,
+    runtime_mode: str,
+    triality_view: str,
+    view_bundle_complete: bool,
+) -> None:
+    normalized_runtime_mode = normalize_triality_runtime_mode(runtime_mode)
+    normalized_view = normalize_triality_view(triality_view)
+    if normalized_runtime_mode not in TRIALITY_SUPPORTED_RUNTIME_MODES:
+        raise ValueError(f"Unsupported runtime_mode {runtime_mode!r}")
+    if normalized_runtime_mode == TRIALITY_RUNTIME_MODE_BEST_PER_LAYER:
+        if not view_bundle_complete:
+            raise ValueError(
+                "best_per_layer runtime_mode requires view_bundle_complete=true"
+            )
+        return
+    expected_runtime_mode = triality_runtime_mode_for_view(normalized_view)
+    if normalized_runtime_mode != expected_runtime_mode:
+        raise ValueError(
+            "triality runtime_mode/view mismatch: "
+            f"{normalized_runtime_mode!r} does not match view {normalized_view!r}"
+        )
 
 
 def normalize_model_family(model_family: str) -> str:
@@ -388,6 +446,9 @@ def build_triality_payload(
 ) -> dict[str, Any]:
     spec = resolve_triality_mode_spec(mode)
     resolved_rotation_seed = spec.rotation_seed if rotation_seed is None else rotation_seed
+    resolved_triality_view = normalize_triality_view(spec.triality_view)
+    resolved_runtime_mode = normalize_triality_runtime_mode(spec.runtime_mode)
+    view_bundle_complete = resolved_triality_view != "none"
 
     if head_dim <= 0:
         raise ValueError(f"head_dim must be positive, got {head_dim}")
@@ -409,9 +470,9 @@ def build_triality_payload(
         "rotation_policy": spec.rotation_policy,
         "rotation_block_size": TRIALITY_ROTATION_BLOCK_SIZE,
         "rotation_seed": int(resolved_rotation_seed),
-        "triality_view": normalize_triality_view(spec.triality_view),
+        "triality_view": resolved_triality_view,
         "triality_mix": float(spec.triality_mix),
-        "view_bundle_complete": spec.triality_view == "none",
+        "view_bundle_complete": view_bundle_complete,
         "orthogonality_error": float(offline_metrics.get("orthogonality_error", 0.0) if offline_metrics else 0.0),
         "determinant_error_max": float(offline_metrics.get("determinant_error_max", 0.0) if offline_metrics else 0.0),
         "paper_fidelity": spec.paper_fidelity,
@@ -437,11 +498,12 @@ def build_triality_payload(
             qjl_seed=1,
         )
     else:
+        payload["runtime_mode"] = resolved_runtime_mode
         payload["pareto_profile"] = {
             "frontier_label": TRIALITY_PROXY_PARETO_MODE,
             "selection_policy": "latency_quality_balanced",
             "rotation_family": "block-so8",
-            "view_family": spec.triality_view,
+            "view_family": resolved_triality_view,
         }
 
     if source_manifest is not None:
@@ -471,6 +533,16 @@ def build_triality_metadata(
     source_profile: str | None = None,
 ) -> dict[str, Any]:
     spec = resolve_triality_mode_spec(mode)
+    resolved_triality_view = normalize_triality_view(triality_view or spec.triality_view)
+    resolved_runtime_mode = normalize_triality_runtime_mode(
+        runtime_mode
+        or (
+            triality_runtime_mode_for_view(resolved_triality_view)
+            if resolved_triality_view != "none"
+            else spec.runtime_mode
+        )
+    )
+    view_bundle_complete = resolved_triality_view != "none"
     metadata = {
         "hypura.turboquant.schema_version": TRIALITY_GGUF_SCHEMA_VERSION,
         "hypura.turboquant.enabled": True,
@@ -481,12 +553,11 @@ def build_triality_metadata(
         "hypura.turboquant.rotation_seed": int(
             spec.rotation_seed if rotation_seed is None else rotation_seed
         ),
-        "hypura.turboquant.triality_view": normalize_triality_view(triality_view or spec.triality_view),
+        "hypura.turboquant.triality_view": resolved_triality_view,
         "hypura.turboquant.triality_mix": float(
             spec.triality_mix if triality_mix is None else triality_mix
         ),
-        "hypura.turboquant.view_bundle_complete": spec.triality_view == "none"
-        or normalize_triality_view(triality_view or spec.triality_view) == "vector",
+        "hypura.turboquant.view_bundle_complete": view_bundle_complete,
         "hypura.turboquant.orthogonality_error": 0.0,
         "hypura.turboquant.determinant_error_max": 0.0,
         "hypura.turboquant.paper_fidelity": spec.paper_fidelity
@@ -497,7 +568,7 @@ def build_triality_metadata(
         "hypura.turboquant.payload_format": TRIALITY_GGUF_PAYLOAD_FORMAT,
         "hypura.turboquant.payload_bytes": len(payload_json.encode("utf-8")),
         "hypura.turboquant.payload_json": payload_json,
-        "hypura.turboquant.runtime_mode": normalize_triality_runtime_mode(runtime_mode or spec.runtime_mode),
+        "hypura.turboquant.runtime_mode": resolved_runtime_mode,
     }
     if source_profile:
         metadata["hypura.turboquant.source_profile"] = source_profile
@@ -547,10 +618,16 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
         raise ValueError(
             f"payload rotation_block_size must be {TRIALITY_ROTATION_BLOCK_SIZE}"
         )
-    normalize_triality_view(str(payload.get("triality_view", "none")))
+    normalized_view = normalize_triality_view(str(payload.get("triality_view", "none")))
     runtime_mode = normalize_triality_runtime_mode(str(payload.get("runtime_mode", "")))
-    if runtime_mode not in {"paper-key-only", TRIALITY_RUNTIME_MODE}:
+    if runtime_mode not in {"paper-key-only", *TRIALITY_SUPPORTED_RUNTIME_MODES}:
         raise ValueError(f"Unsupported payload runtime_mode {payload.get('runtime_mode')!r}")
+    if runtime_mode != "paper-key-only":
+        validate_triality_runtime_pair(
+            runtime_mode=runtime_mode,
+            triality_view=normalized_view,
+            view_bundle_complete=bool(payload.get("view_bundle_complete", False)),
+        )
     orthogonality_error = float(payload.get("orthogonality_error", 0.0))
     determinant_error_max = float(payload.get("determinant_error_max", 0.0))
     if orthogonality_error < 0.0 or determinant_error_max < 0.0:
@@ -596,10 +673,16 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
             f"Unsupported Triality payload_format {payload_format!r}; expected {TRIALITY_GGUF_PAYLOAD_FORMAT!r}"
         )
 
-    normalize_triality_view(str(metadata["hypura.turboquant.triality_view"]))
+    normalized_view = normalize_triality_view(str(metadata["hypura.turboquant.triality_view"]))
     runtime_mode = normalize_triality_runtime_mode(str(metadata.get("hypura.turboquant.runtime_mode", spec.runtime_mode)))
-    if runtime_mode not in {"paper-key-only", TRIALITY_RUNTIME_MODE}:
+    if runtime_mode not in {"paper-key-only", *TRIALITY_SUPPORTED_RUNTIME_MODES}:
         raise ValueError(f"Unsupported hypura.turboquant.runtime_mode {runtime_mode!r}")
+    if runtime_mode != "paper-key-only":
+        validate_triality_runtime_pair(
+            runtime_mode=runtime_mode,
+            triality_view=normalized_view,
+            view_bundle_complete=bool(metadata["hypura.turboquant.view_bundle_complete"]),
+        )
 
     orthogonality_error = float(metadata["hypura.turboquant.orthogonality_error"])
     determinant_error_max = float(metadata["hypura.turboquant.determinant_error_max"])
@@ -687,7 +770,12 @@ __all__ = [
     "TRIALITY_PROXY_PARETO_MODE",
     "TRIALITY_ROTATION_BLOCK_SIZE",
     "TRIALITY_RUNTIME_MODE",
+    "TRIALITY_RUNTIME_MODE_BEST_PER_LAYER",
     "TRIALITY_RUNTIME_MODE_ALIASES",
+    "TRIALITY_RUNTIME_MODE_BY_VIEW",
+    "TRIALITY_RUNTIME_MODE_MINUS",
+    "TRIALITY_RUNTIME_MODE_PLUS",
+    "TRIALITY_SUPPORTED_RUNTIME_MODES",
     "TRIALITY_REQUIRED_KEYS",
     "TrialityModeSpec",
     "build_sample_env",
@@ -701,7 +789,9 @@ __all__ = [
     "normalize_triality_view",
     "payload_json_dumps",
     "resolve_triality_mode_spec",
+    "triality_runtime_mode_for_view",
     "validate_triality_metadata",
     "validate_triality_payload",
+    "validate_triality_runtime_pair",
     "TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES",
 ]
