@@ -54,6 +54,58 @@ TRIALITY_SUPPORTED_RUNTIME_MODES = (
     TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
 )
 TRIALITY_ROTATION_BLOCK_SIZE = 8
+TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR = "triality-vector"
+TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS = "triality-plus"
+TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS = "triality-minus"
+TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER = "best_per_layer"
+TRIALITY_PUBLIC_CACHE_TYPE_K_Q8_0 = "q8_0"
+TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0 = "q8_0"
+TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4 = "turbo4"
+TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3 = "turbo3"
+TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2 = "turbo2"
+TRIALITY_PUBLIC_CACHE_TYPE_K_ALIASES = {
+    TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR: TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR,
+    "triality_vector": TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR,
+    "vector": TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR,
+    "research-kv-split": TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR,
+    TRIALITY_RUNTIME_MODE: TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR,
+    TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS: TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS,
+    "triality_plus": TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS,
+    "spinor_plus_proxy": TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS,
+    "plus": TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS,
+    TRIALITY_RUNTIME_MODE_PLUS: TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS,
+    TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS: TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS,
+    "triality_minus": TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS,
+    "spinor_minus_proxy": TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS,
+    "minus": TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS,
+    TRIALITY_RUNTIME_MODE_MINUS: TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS,
+    TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER: TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER,
+    "triality_best_per_layer": TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER,
+    TRIALITY_RUNTIME_MODE_BEST_PER_LAYER: TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER,
+    TRIALITY_PUBLIC_CACHE_TYPE_K_Q8_0: TRIALITY_PUBLIC_CACHE_TYPE_K_Q8_0,
+}
+TRIALITY_PUBLIC_CACHE_TYPE_V_ALIASES = {
+    TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0: TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4: TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3: TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2: TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2,
+}
+TRIALITY_PUBLIC_CACHE_TYPE_K_BY_RUNTIME_MODE = {
+    TRIALITY_RUNTIME_MODE: TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR,
+    TRIALITY_RUNTIME_MODE_PLUS: TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS,
+    TRIALITY_RUNTIME_MODE_MINUS: TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS,
+    TRIALITY_RUNTIME_MODE_BEST_PER_LAYER: TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER,
+}
+TRIALITY_SUPPORTED_PUBLIC_CACHE_TYPES_K = (
+    *TRIALITY_PUBLIC_CACHE_TYPE_K_BY_RUNTIME_MODE.values(),
+    TRIALITY_PUBLIC_CACHE_TYPE_K_Q8_0,
+)
+TRIALITY_SUPPORTED_PUBLIC_CACHE_TYPES_V = (
+    TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2,
+)
 
 TrialityPublicMode = Literal["paper-faithful", "triality-proxy-so8-pareto", "triality-so8-pareto"]
 
@@ -77,6 +129,8 @@ TRIALITY_REQUIRED_KEYS = (
     "hypura.turboquant.rotation_seed",
     "hypura.turboquant.triality_view",
     "hypura.turboquant.triality_mix",
+    "hypura.turboquant.cache_type_k",
+    "hypura.turboquant.cache_type_v",
     "hypura.turboquant.view_bundle_complete",
     "hypura.turboquant.orthogonality_error",
     "hypura.turboquant.determinant_error_max",
@@ -130,6 +184,62 @@ def normalize_triality_runtime_mode(runtime_mode: str) -> str:
 def triality_runtime_mode_for_view(view: str) -> str:
     normalized_view = normalize_triality_view(view)
     return TRIALITY_RUNTIME_MODE_BY_VIEW[normalized_view]
+
+
+def normalize_public_cache_type_k(cache_type_k: str) -> str:
+    normalized_cache_type_k = cache_type_k.strip().lower().replace("-", "_")
+    alias_map = {
+        alias.replace("-", "_"): target for alias, target in TRIALITY_PUBLIC_CACHE_TYPE_K_ALIASES.items()
+    }
+    try:
+        return alias_map[normalized_cache_type_k]
+    except KeyError as exc:
+        supported = ", ".join(sorted(TRIALITY_PUBLIC_CACHE_TYPE_K_ALIASES))
+        raise ValueError(
+            f"Unsupported cache_type_k {cache_type_k!r}; expected one of {supported}"
+        ) from exc
+
+
+def normalize_public_cache_type_v(cache_type_v: str) -> str:
+    normalized_cache_type_v = cache_type_v.strip().lower().replace("-", "_")
+    alias_map = {
+        alias.replace("-", "_"): target for alias, target in TRIALITY_PUBLIC_CACHE_TYPE_V_ALIASES.items()
+    }
+    try:
+        return alias_map[normalized_cache_type_v]
+    except KeyError as exc:
+        supported = ", ".join(sorted(TRIALITY_PUBLIC_CACHE_TYPE_V_ALIASES))
+        raise ValueError(
+            f"Unsupported cache_type_v {cache_type_v!r}; expected one of {supported}"
+        ) from exc
+
+
+def public_cache_type_k_for_runtime_mode(runtime_mode: str) -> str:
+    normalized_runtime_mode = normalize_triality_runtime_mode(runtime_mode)
+    try:
+        return TRIALITY_PUBLIC_CACHE_TYPE_K_BY_RUNTIME_MODE[normalized_runtime_mode]
+    except KeyError as exc:
+        supported = ", ".join(sorted(TRIALITY_PUBLIC_CACHE_TYPE_K_BY_RUNTIME_MODE))
+        raise ValueError(
+            f"Unsupported runtime_mode {runtime_mode!r}; expected one of {supported}"
+        ) from exc
+
+
+def validate_triality_cache_types(
+    *,
+    runtime_mode: str,
+    cache_type_k: str,
+    cache_type_v: str,
+) -> None:
+    normalized_runtime_mode = normalize_triality_runtime_mode(runtime_mode)
+    normalized_cache_type_k = normalize_public_cache_type_k(cache_type_k)
+    normalize_public_cache_type_v(cache_type_v)
+    expected_cache_type_k = public_cache_type_k_for_runtime_mode(normalized_runtime_mode)
+    if normalized_cache_type_k != expected_cache_type_k:
+        raise ValueError(
+            "triality runtime_mode/cache_type_k mismatch: "
+            f"{normalized_runtime_mode!r} does not match cache_type_k {normalized_cache_type_k!r}"
+        )
 
 
 def validate_triality_runtime_pair(
@@ -441,6 +551,7 @@ def build_triality_payload(
     weight_protected_layers: list[int] | None = None,
     modality_scope: str | None = None,
     rotation_seed: int | None = None,
+    cache_type_v: str | None = None,
     source_manifest: dict[str, Any] | None = None,
     offline_metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -448,6 +559,10 @@ def build_triality_payload(
     resolved_rotation_seed = spec.rotation_seed if rotation_seed is None else rotation_seed
     resolved_triality_view = normalize_triality_view(spec.triality_view)
     resolved_runtime_mode = normalize_triality_runtime_mode(spec.runtime_mode)
+    resolved_cache_type_k = public_cache_type_k_for_runtime_mode(resolved_runtime_mode)
+    resolved_cache_type_v = normalize_public_cache_type_v(
+        cache_type_v or TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0
+    )
     view_bundle_complete = resolved_triality_view != "none"
 
     if head_dim <= 0:
@@ -472,6 +587,8 @@ def build_triality_payload(
         "rotation_seed": int(resolved_rotation_seed),
         "triality_view": resolved_triality_view,
         "triality_mix": float(spec.triality_mix),
+        "cache_type_k": resolved_cache_type_k,
+        "cache_type_v": resolved_cache_type_v,
         "view_bundle_complete": view_bundle_complete,
         "orthogonality_error": float(offline_metrics.get("orthogonality_error", 0.0) if offline_metrics else 0.0),
         "determinant_error_max": float(offline_metrics.get("determinant_error_max", 0.0) if offline_metrics else 0.0),
@@ -530,6 +647,8 @@ def build_triality_metadata(
     k_bits: float | None = None,
     v_bits: float | None = None,
     runtime_mode: str | None = None,
+    cache_type_k: str | None = None,
+    cache_type_v: str | None = None,
     source_profile: str | None = None,
 ) -> dict[str, Any]:
     spec = resolve_triality_mode_spec(mode)
@@ -542,7 +661,18 @@ def build_triality_metadata(
             else spec.runtime_mode
         )
     )
+    resolved_cache_type_k = normalize_public_cache_type_k(
+        cache_type_k or public_cache_type_k_for_runtime_mode(resolved_runtime_mode)
+    )
+    resolved_cache_type_v = normalize_public_cache_type_v(
+        cache_type_v or TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0
+    )
     view_bundle_complete = resolved_triality_view != "none"
+    validate_triality_cache_types(
+        runtime_mode=resolved_runtime_mode,
+        cache_type_k=resolved_cache_type_k,
+        cache_type_v=resolved_cache_type_v,
+    )
     metadata = {
         "hypura.turboquant.schema_version": TRIALITY_GGUF_SCHEMA_VERSION,
         "hypura.turboquant.enabled": True,
@@ -557,6 +687,8 @@ def build_triality_metadata(
         "hypura.turboquant.triality_mix": float(
             spec.triality_mix if triality_mix is None else triality_mix
         ),
+        "hypura.turboquant.cache_type_k": resolved_cache_type_k,
+        "hypura.turboquant.cache_type_v": resolved_cache_type_v,
         "hypura.turboquant.view_bundle_complete": view_bundle_complete,
         "hypura.turboquant.orthogonality_error": 0.0,
         "hypura.turboquant.determinant_error_max": 0.0,
@@ -620,6 +752,12 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
         )
     normalized_view = normalize_triality_view(str(payload.get("triality_view", "none")))
     runtime_mode = normalize_triality_runtime_mode(str(payload.get("runtime_mode", "")))
+    cache_type_k = normalize_public_cache_type_k(
+        str(payload.get("cache_type_k", public_cache_type_k_for_runtime_mode(runtime_mode)))
+    )
+    cache_type_v = normalize_public_cache_type_v(
+        str(payload.get("cache_type_v", TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0))
+    )
     if runtime_mode not in {"paper-key-only", *TRIALITY_SUPPORTED_RUNTIME_MODES}:
         raise ValueError(f"Unsupported payload runtime_mode {payload.get('runtime_mode')!r}")
     if runtime_mode != "paper-key-only":
@@ -627,6 +765,11 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
             runtime_mode=runtime_mode,
             triality_view=normalized_view,
             view_bundle_complete=bool(payload.get("view_bundle_complete", False)),
+        )
+        validate_triality_cache_types(
+            runtime_mode=runtime_mode,
+            cache_type_k=cache_type_k,
+            cache_type_v=cache_type_v,
         )
     orthogonality_error = float(payload.get("orthogonality_error", 0.0))
     determinant_error_max = float(payload.get("determinant_error_max", 0.0))
@@ -675,6 +818,8 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
 
     normalized_view = normalize_triality_view(str(metadata["hypura.turboquant.triality_view"]))
     runtime_mode = normalize_triality_runtime_mode(str(metadata.get("hypura.turboquant.runtime_mode", spec.runtime_mode)))
+    cache_type_k = normalize_public_cache_type_k(str(metadata["hypura.turboquant.cache_type_k"]))
+    cache_type_v = normalize_public_cache_type_v(str(metadata["hypura.turboquant.cache_type_v"]))
     if runtime_mode not in {"paper-key-only", *TRIALITY_SUPPORTED_RUNTIME_MODES}:
         raise ValueError(f"Unsupported hypura.turboquant.runtime_mode {runtime_mode!r}")
     if runtime_mode != "paper-key-only":
@@ -682,6 +827,11 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
             runtime_mode=runtime_mode,
             triality_view=normalized_view,
             view_bundle_complete=bool(metadata["hypura.turboquant.view_bundle_complete"]),
+        )
+        validate_triality_cache_types(
+            runtime_mode=runtime_mode,
+            cache_type_k=cache_type_k,
+            cache_type_v=cache_type_v,
         )
 
     orthogonality_error = float(metadata["hypura.turboquant.orthogonality_error"])
@@ -768,6 +918,18 @@ __all__ = [
     "TRIALITY_GGUF_SCHEMA_VERSION",
     "TRIALITY_PROXY_PARETO_LEGACY_ALIAS",
     "TRIALITY_PROXY_PARETO_MODE",
+    "TRIALITY_PUBLIC_CACHE_TYPE_K_ALIASES",
+    "TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER",
+    "TRIALITY_PUBLIC_CACHE_TYPE_K_BY_RUNTIME_MODE",
+    "TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS",
+    "TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS",
+    "TRIALITY_PUBLIC_CACHE_TYPE_K_Q8_0",
+    "TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR",
+    "TRIALITY_PUBLIC_CACHE_TYPE_V_ALIASES",
+    "TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0",
+    "TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2",
+    "TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3",
+    "TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4",
     "TRIALITY_ROTATION_BLOCK_SIZE",
     "TRIALITY_RUNTIME_MODE",
     "TRIALITY_RUNTIME_MODE_BEST_PER_LAYER",
@@ -785,11 +947,15 @@ __all__ = [
     "build_default_weight_plan",
     "expected_modalities",
     "normalize_model_family",
+    "normalize_public_cache_type_k",
+    "normalize_public_cache_type_v",
     "normalize_triality_runtime_mode",
     "normalize_triality_view",
     "payload_json_dumps",
+    "public_cache_type_k_for_runtime_mode",
     "resolve_triality_mode_spec",
     "triality_runtime_mode_for_view",
+    "validate_triality_cache_types",
     "validate_triality_metadata",
     "validate_triality_payload",
     "validate_triality_runtime_pair",

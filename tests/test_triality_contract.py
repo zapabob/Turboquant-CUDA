@@ -9,6 +9,14 @@ import pytest
 
 from turboquant.triality_contract import (
     TRIALITY_ROTATION_BLOCK_SIZE,
+    TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER,
+    TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS,
+    TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS,
+    TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4,
     TRIALITY_RUNTIME_MODE,
     TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
     TRIALITY_RUNTIME_MODE_MINUS,
@@ -16,6 +24,8 @@ from turboquant.triality_contract import (
     build_triality_metadata,
     build_triality_payload,
     expected_modalities,
+    normalize_public_cache_type_k,
+    normalize_public_cache_type_v,
     normalize_triality_runtime_mode,
     normalize_triality_view,
 )
@@ -150,6 +160,8 @@ def test_triality_metadata_includes_weight_codec_and_v1_payload() -> None:
     assert metadata["hypura.turboquant.codec"] == "tq4_1s"
     assert metadata["hypura.turboquant.rotation_block_size"] == TRIALITY_ROTATION_BLOCK_SIZE
     assert metadata["hypura.turboquant.runtime_mode"] == TRIALITY_RUNTIME_MODE
+    assert metadata["hypura.turboquant.cache_type_k"] == TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR
+    assert metadata["hypura.turboquant.cache_type_v"] == TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0
     assert metadata["hypura.turboquant.weight.codec"] == "tq4_1s"
     weight_payload = json.loads(metadata["hypura.turboquant.weight.payload_json"])
     assert weight_payload["schema"] == "hypura.turboquant.weight.v1"
@@ -164,6 +176,15 @@ def test_triality_alias_normalization_accepts_the_tom_and_zapabob_spellings() ->
     assert normalize_triality_runtime_mode("triality-plus") == TRIALITY_RUNTIME_MODE_PLUS
     assert normalize_triality_runtime_mode("spinor_minus_proxy") == TRIALITY_RUNTIME_MODE_MINUS
     assert normalize_triality_runtime_mode("best_per_layer") == TRIALITY_RUNTIME_MODE_BEST_PER_LAYER
+    assert normalize_public_cache_type_k("vector") == TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR
+    assert normalize_public_cache_type_k("triality-plus") == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
+    assert normalize_public_cache_type_k("spinor_plus_proxy") == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
+    assert normalize_public_cache_type_k("triality-minus") == TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS
+    assert normalize_public_cache_type_k("best_per_layer") == TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER
+    assert normalize_public_cache_type_v("turbo2") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2
+    assert normalize_public_cache_type_v("turbo3") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3
+    assert normalize_public_cache_type_v("turbo4") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4
+    assert normalize_public_cache_type_v("q8_0") == TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0
     assert normalize_triality_view("plus") == "spinor_plus_proxy"
     assert normalize_triality_view("minus") == "spinor_minus_proxy"
 
@@ -184,10 +205,13 @@ def test_triality_metadata_supports_spinor_plus_public_view() -> None:
         weight_plan=payload["weight_plan"],
         triality_view="plus",
         runtime_mode="triality-plus",
+        cache_type_v="turbo4",
     )
 
     assert metadata["hypura.turboquant.triality_view"] == "spinor_plus_proxy"
     assert metadata["hypura.turboquant.runtime_mode"] == TRIALITY_RUNTIME_MODE_PLUS
+    assert metadata["hypura.turboquant.cache_type_k"] == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
+    assert metadata["hypura.turboquant.cache_type_v"] == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4
     assert metadata["hypura.turboquant.view_bundle_complete"] is True
 
 

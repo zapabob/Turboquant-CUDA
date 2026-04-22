@@ -236,11 +236,15 @@ def test_package_embeds_hypura_bridge_metadata_for_triality_profile(tmp_path: Pa
     assert list(reader.get_field("tq_triality_mode").contents()) == ["triality_proxy", "triality_proxy"]
     assert list(reader.get_field("tq_triality_view").contents()) == ["vector", "vector"]
     assert str(reader.get_field("hypura.turboquant.mode").contents()) == "triality-proxy-so8-pareto"
+    assert str(reader.get_field("hypura.turboquant.cache_type_k").contents()) == "triality-vector"
+    assert str(reader.get_field("hypura.turboquant.cache_type_v").contents()) == "q8_0"
 
     bridge = read_hypura_gguf_bridge_config(output)
     assert bridge is not None
     assert bridge.source_profile == "so8_triality_vector"
-    assert bridge.mode == "research-kv-split"
+    assert bridge.mode == "key_only_block_so8_triality_vector"
+    assert bridge.cache_type_k == "triality-vector"
+    assert bridge.cache_type_v == "q8_0"
     assert bridge.rotation_policy == "triality_vector"
     assert bridge.triality_view == "vector"
     assert bridge.rotation_seed == 17
@@ -269,8 +273,74 @@ def test_package_embeds_hypura_bridge_metadata_for_triality_profile(tmp_path: Pa
         "--context",
         "4096",
         "--turboquant-mode",
-        "research-kv-split",
+        "key_only_block_so8_triality_vector",
     ]
+
+
+def test_hypura_serve_command_accepts_triality_vector_public_cache_type_alias(tmp_path: Path) -> None:
+    source = tmp_path / "toy.gguf"
+    _write_toy_gguf(source)
+    rotation_dir = tmp_path / "rotations"
+    rotation_dir.mkdir(parents=True, exist_ok=True)
+    _write_triality_rotation_dir(rotation_dir, bits_total=3.5)
+    output = tmp_path / "toy.alias.gguf"
+
+    package_turboquant_gguf(
+        source_path=source,
+        output_path=output,
+        profiles=[
+            build_paper_gguf_profile(bits_total=3.5, head_dim=8),
+            build_so8_triality_vector_gguf_profile(
+                rotation_dir=rotation_dir,
+                bits_total=3.5,
+                expected_head_dim=8,
+                expected_block_count=2,
+            ),
+        ],
+        hypura_compatibility_profile=GGUF_HYPURA_COMPAT_AUTO,
+    )
+
+    command = build_hypura_serve_command(
+        gguf_path=output,
+        turboquant_mode="triality-vector",
+    )
+    assert command[-1] == "key_only_block_so8_triality_vector"
+
+
+def test_hypura_serve_command_accepts_spinor_public_cache_type_aliases(tmp_path: Path) -> None:
+    source = tmp_path / "toy-spinor.gguf"
+    _write_toy_gguf(source)
+    rotation_dir = tmp_path / "rotations"
+    rotation_dir.mkdir(parents=True, exist_ok=True)
+    _write_triality_rotation_dir(rotation_dir, bits_total=3.5)
+    output = tmp_path / "toy-spinor.alias.gguf"
+
+    package_turboquant_gguf(
+        source_path=source,
+        output_path=output,
+        profiles=[
+            build_paper_gguf_profile(bits_total=3.5, head_dim=8),
+            build_so8_triality_vector_gguf_profile(
+                rotation_dir=rotation_dir,
+                bits_total=3.5,
+                expected_head_dim=8,
+                expected_block_count=2,
+            ),
+        ],
+        hypura_compatibility_profile=GGUF_HYPURA_COMPAT_AUTO,
+    )
+
+    plus_command = build_hypura_serve_command(
+        gguf_path=output,
+        turboquant_mode="triality-plus",
+    )
+    minus_command = build_hypura_serve_command(
+        gguf_path=output,
+        turboquant_mode="triality-minus",
+    )
+
+    assert plus_command[-1] == "key_only_block_so8_triality_plus"
+    assert minus_command[-1] == "key_only_block_so8_triality_minus"
 
 
 def test_package_preserves_quantized_q8_tensor_bytes_and_type(tmp_path: Path) -> None:

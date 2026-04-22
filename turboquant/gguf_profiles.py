@@ -33,6 +33,7 @@ from turboquant.schema import (
 from turboquant.triality_contract import (
     TRIALITY_PROXY_PARETO_LEGACY_ALIAS,
     TRIALITY_PROXY_PARETO_MODE,
+    TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0,
     TRIALITY_RUNTIME_MODE,
     TRIALITY_RUNTIME_MODE_ALIASES,
     TRIALITY_RUNTIME_MODE_BEST_PER_LAYER,
@@ -41,9 +42,12 @@ from turboquant.triality_contract import (
     TRIALITY_SUPPORTED_RUNTIME_MODES,
     build_triality_metadata,
     build_triality_payload,
+    normalize_public_cache_type_k,
+    normalize_public_cache_type_v,
     normalize_triality_runtime_mode,
     normalize_triality_view,
     payload_json_dumps,
+    public_cache_type_k_for_runtime_mode,
     triality_runtime_mode_for_view,
     validate_triality_metadata,
 )
@@ -106,6 +110,8 @@ class HypuraTurboQuantBridgeConfig:
 
     source_profile: str
     mode: str
+    cache_type_k: str
+    cache_type_v: str
     rotation_policy: str | None = None
     triality_view: str | None = None
     triality_mix: float | None = None
@@ -569,12 +575,25 @@ def build_hypura_bridge_config(profile: TurboQuantGGUFProfile) -> HypuraTurboQua
             str(profile.metadata.get("triality_view", PRODUCTION_K_TURBOQUANT_VIEW))
         )
         runtime_mode = normalize_triality_runtime_mode(
-            str(profile.metadata.get("triality_mode", triality_runtime_mode_for_view(triality_view)))
+            str(
+                profile.metadata.get(
+                    "runtime_mode",
+                    profile.runtime_mode or triality_runtime_mode_for_view(triality_view),
+                )
+            )
+        )
+        cache_type_k = normalize_public_cache_type_k(
+            str(profile.metadata.get("cache_type_k", public_cache_type_k_for_runtime_mode(runtime_mode)))
+        )
+        cache_type_v = normalize_public_cache_type_v(
+            str(profile.metadata.get("cache_type_v", TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0))
         )
         rotation_seed = int(profile.metadata.get("rotation_seed", 0))
         return HypuraTurboQuantBridgeConfig(
             source_profile=profile.name,
             mode=runtime_mode,
+            cache_type_k=cache_type_k,
+            cache_type_v=cache_type_v,
             rotation_policy="triality_vector",
             triality_view=triality_view,
             rotation_seed=rotation_seed,
@@ -601,15 +620,28 @@ def read_hypura_gguf_bridge_config(path: Path) -> HypuraTurboQuantBridgeConfig |
     public_mode = _read_required_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.mode")
     runtime_mode = _read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.runtime_mode")
     raw_triality_view = _read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_view")
+    raw_cache_type_k = _read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.cache_type_k")
+    raw_cache_type_v = _read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.cache_type_v")
     if runtime_mode is None:
         runtime_mode = {
             "paper-faithful": "paper-key-only",
             TRIALITY_PROXY_PARETO_MODE: TRIALITY_RUNTIME_MODE,
             TRIALITY_PROXY_PARETO_LEGACY_ALIAS: TRIALITY_RUNTIME_MODE,
         }.get(public_mode, public_mode)
+    normalized_runtime_mode = normalize_triality_runtime_mode(runtime_mode)
+    cache_type_k = normalize_public_cache_type_k(
+        raw_cache_type_k
+        if raw_cache_type_k is not None
+        else public_cache_type_k_for_runtime_mode(normalized_runtime_mode)
+    )
+    cache_type_v = normalize_public_cache_type_v(
+        raw_cache_type_v if raw_cache_type_v is not None else TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0
+    )
     return HypuraTurboQuantBridgeConfig(
         source_profile=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.source_profile") or "unknown",
-        mode=normalize_triality_runtime_mode(runtime_mode),
+        mode=normalized_runtime_mode,
+        cache_type_k=cache_type_k,
+        cache_type_v=cache_type_v,
         rotation_policy=_read_optional_string(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.rotation_policy"),
         triality_view=normalize_triality_view(raw_triality_view) if raw_triality_view is not None else None,
         triality_mix=_read_optional_float(reader, f"{HYPURA_TURBOQUANT_NAMESPACE}.triality_mix"),
@@ -652,7 +684,16 @@ def build_hypura_serve_command(
                 "--hypura-compatible-profile auto or pass an explicit --turboquant-mode."
             )
         resolved_mode = bridge.mode
-    elif turboquant_mode in supported_modes or turboquant_mode in TRIALITY_RUNTIME_MODE_ALIASES:
+    elif (
+        turboquant_mode in supported_modes
+        or turboquant_mode in TRIALITY_RUNTIME_MODE_ALIASES
+        or turboquant_mode.strip().lower().replace("_", "-") in {
+            "triality-vector",
+            "triality-plus",
+            "triality-minus",
+            "best_per_layer",
+        }
+    ):
         resolved_mode = normalize_triality_runtime_mode(turboquant_mode)
     else:
         raise ValueError(
@@ -798,6 +839,8 @@ def _write_hypura_bridge_metadata(
         k_bits=float(profile.metadata.get("bits_total", profile.manifest.get("bits_total", 0.0))),
         v_bits=float(profile.metadata.get("v_bits", 8.0 if public_mode == TRIALITY_PROXY_PARETO_MODE else 16.0)),
         runtime_mode=bridge.mode,
+        cache_type_k=bridge.cache_type_k,
+        cache_type_v=bridge.cache_type_v,
         source_profile=bridge.source_profile,
     )
     metadata["hypura.turboquant.orthogonality_error"] = float(profile.metadata.get("orthogonality_error", 0.0))
