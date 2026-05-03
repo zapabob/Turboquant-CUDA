@@ -49,6 +49,8 @@ def _load_module(path: Path, name: str):
         "Qwen/Qwen3.5-4B",
         "Qwen/Qwen3.5-9B",
         "Qwen/Qwen3.5-27B",
+        "ELT/Qwen3.5-looped",
+        "elastic-looped-transformer/qwen3.5-4b",
     ],
 )
 def test_qwen35_payload_uses_weight_v1_config_i_contract(model_family: str) -> None:

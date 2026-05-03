@@ -15,6 +15,7 @@ import numpy as np
 
 from turboquant.gguf_profiles import import_vendor_gguf
 from turboquant.triality_contract import (
+    ELT_LOOPED_QWEN35_MODEL_FAMILY,
     build_default_weight_plan,
     build_triality_metadata,
     build_triality_payload,
@@ -27,6 +28,12 @@ _BLOCK_LAYER_RE = re.compile(r"^blk\.(\d+)\.")
 _QWEN_4B_HINTS = ("qwen3.5-4b", "qwen35-4b", "qwen35_4b")
 _QWEN_9B_HINTS = ("qwen3.5-9b", "qwen35-9b", "qwen35_9b")
 _QWEN_27B_HINTS = ("qwen3.5-27b", "qwen35-27b", "qwen35_27b")
+_ELT_MODEL_FAMILY_KEYS = (
+    "elt.model_family",
+    "elt.base_model_family",
+    "elt.source_model_family",
+    "elt.loop.model_family",
+)
 _GEMMA_E2B_HINTS = ("gemma-4-e2b", "gemma4-e2b", "gemma 4 e2b")
 _GEMMA_E4B_HINTS = ("gemma-4-e4b", "gemma4-e4b", "gemma 4 e4b")
 _GEMMA_A4B_HINTS = ("gemma-4-26b-a4b", "gemma4-26b-a4b", "gemma 4 26b a4b", "gemma4-a4b")
@@ -371,10 +378,17 @@ def _infer_model_family(*, reader: Any, source_path: Path) -> str | None:
     candidate_values = [
         _read_optional_string(reader, "general.name"),
         _read_optional_string(reader, "general.basename"),
+        *(_read_optional_string(reader, key) for key in _ELT_MODEL_FAMILY_KEYS),
         source_path.stem,
         str(source_path.parent.name),
     ]
     lowered = " ".join(value.lower() for value in candidate_values if value)
+    if _read_optional_bool(reader, "elt.loop.required") is True:
+        return ELT_LOOPED_QWEN35_MODEL_FAMILY
+    if "elastic-looped-transformer" in lowered and "qwen3.5" in lowered:
+        return ELT_LOOPED_QWEN35_MODEL_FAMILY
+    if "elt/" in lowered and "qwen3.5" in lowered:
+        return ELT_LOOPED_QWEN35_MODEL_FAMILY
     if any(hint in lowered for hint in _GEMMA_A4B_HINTS):
         return "google/gemma-4-26b-a4b-it"
     if any(hint in lowered for hint in _GEMMA_E4B_HINTS):
@@ -401,6 +415,23 @@ def _read_optional_string(reader: Any, key: str) -> str | None:
         return None
     value = str(field.contents()).strip()
     return value or None
+
+
+def _read_optional_bool(reader: Any, key: str) -> bool | None:
+    field = reader.get_field(key)
+    if field is None:
+        return None
+    value = field.contents()
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return bool(value)
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    return None
 
 
 __all__ = [

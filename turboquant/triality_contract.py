@@ -112,6 +112,7 @@ TrialityPublicMode = Literal["paper-faithful", "triality-proxy-so8-pareto", "tri
 TRIALITY_GGUF_SCHEMA_VERSION = 1
 TRIALITY_GGUF_PAYLOAD_FORMAT = "json-inline-v1"
 TRIALITY_GGUF_NAMESPACE = "hypura.turboquant"
+ELT_LOOPED_QWEN35_MODEL_FAMILY = "ELT/Qwen3.5-looped"
 TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES = ("bf16", "f16", "q8_0")
 TRIALITY_WEIGHT_ALLOWED_TENSOR_CODECS = ("tq4_1s", "q4_k", "q8_0")
 TRIALITY_ALLOWED_MODES: tuple[TrialityPublicMode, ...] = (
@@ -912,6 +913,7 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
 
 __all__ = [
     "TRIALITY_ALLOWED_MODES",
+    "ELT_LOOPED_QWEN35_MODEL_FAMILY",
     "TRIALITY_FIXTURE_MANIFEST_VERSION",
     "TRIALITY_GGUF_NAMESPACE",
     "TRIALITY_GGUF_PAYLOAD_FORMAT",
