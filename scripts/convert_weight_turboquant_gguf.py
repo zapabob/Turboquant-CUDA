@@ -27,6 +27,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="triality-proxy-so8-pareto",
         help="Triality metadata mode to record alongside the converted weight artifact.",
     )
+    parser.add_argument(
+        "--replace-existing-turboquant-metadata",
+        action="store_true",
+        help=(
+            "Replace an existing hypura.turboquant.* namespace in the source GGUF. "
+            "Use this when a converter/quantizer already wrote provisional metadata "
+            "and this script is producing the authoritative TQ4_1S weight artifact."
+        ),
+    )
     parser.add_argument("--force", action="store_true", help="Overwrite --output-gguf if it already exists.")
     return parser.parse_args(argv)
 
@@ -45,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path=output_gguf,
         model_family=args.model_family,
         mode=args.mode,
+        replace_existing_turboquant_metadata=args.replace_existing_turboquant_metadata,
     )
     print(f"converted_gguf={summary.output_path}")
     print(f"model_family={summary.model_family}")

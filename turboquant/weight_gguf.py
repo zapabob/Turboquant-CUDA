@@ -24,6 +24,7 @@ from turboquant.triality_contract import (
 
 
 _BLOCK_LAYER_RE = re.compile(r"^blk\.(\d+)\.")
+_QWEN_4B_HINTS = ("qwen3.5-4b", "qwen35-4b", "qwen35_4b")
 _QWEN_9B_HINTS = ("qwen3.5-9b", "qwen35-9b", "qwen35_9b")
 _QWEN_27B_HINTS = ("qwen3.5-27b", "qwen35-27b", "qwen35_27b")
 _GEMMA_E2B_HINTS = ("gemma-4-e2b", "gemma4-e2b", "gemma 4 e2b")
@@ -59,6 +60,7 @@ def convert_weight_turboquant_gguf(
     model_family: str | None = None,
     mode: str = "triality-proxy-so8-pareto",
     weight_plan: dict[str, Any] | None = None,
+    replace_existing_turboquant_metadata: bool = False,
 ) -> WeightGGUFConversionSummary:
     """Convert selected GGUF Q8_0 weight tensors into offline TQ4_1S blocks.
 
@@ -69,7 +71,8 @@ def convert_weight_turboquant_gguf(
 
     gguf = import_vendor_gguf()
     reader = gguf.GGUFReader(source_path)
-    _ensure_no_existing_turboquant_namespace(reader=reader)
+    if not replace_existing_turboquant_metadata:
+        _ensure_no_existing_turboquant_namespace(reader=reader)
 
     arch = _require_source_architecture(reader)
     resolved_model_family = model_family or _infer_model_family(reader=reader, source_path=source_path)
@@ -112,7 +115,12 @@ def convert_weight_turboquant_gguf(
     )
 
     writer = gguf.GGUFWriter(output_path, arch=arch, use_temp_file=False)
-    _copy_source_kv_metadata(reader=reader, writer=writer, gguf=gguf)
+    _copy_source_kv_metadata(
+        reader=reader,
+        writer=writer,
+        gguf=gguf,
+        replace_existing_turboquant_metadata=replace_existing_turboquant_metadata,
+    )
     writer.add_uint32("general.file_type", int(gguf.LlamaFileType.GUESSED))
     writer.add_string("hypura.turboquant.weight.generated_at_utc", datetime.now(timezone.utc).isoformat())
     for key, value in metadata.items():
@@ -258,11 +266,21 @@ def _tensor_layer_index(tensor_name: str) -> int | None:
     return int(match.group(1))
 
 
-def _copy_source_kv_metadata(*, reader: Any, writer: Any, gguf: Any) -> None:
+def _copy_source_kv_metadata(
+    *,
+    reader: Any,
+    writer: Any,
+    gguf: Any,
+    replace_existing_turboquant_metadata: bool,
+) -> None:
     for key, field in reader.fields.items():
         if key.startswith("GGUF."):
             continue
         if key == "general.architecture":
+            continue
+        if key == "general.file_type":
+            continue
+        if key.startswith("hypura.turboquant.") and replace_existing_turboquant_metadata:
             continue
         if key.startswith("hypura.turboquant."):
             raise ValueError(
@@ -363,6 +381,8 @@ def _infer_model_family(*, reader: Any, source_path: Path) -> str | None:
         return "google/gemma-4-e4b-it"
     if any(hint in lowered for hint in _GEMMA_E2B_HINTS):
         return "google/gemma-4-e2b-it"
+    if any(hint in lowered for hint in _QWEN_4B_HINTS):
+        return "Qwen/Qwen3.5-4B"
     if any(hint in lowered for hint in _QWEN_27B_HINTS):
         return "Qwen/Qwen3.5-27B"
     if any(hint in lowered for hint in _QWEN_9B_HINTS):

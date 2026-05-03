@@ -246,16 +246,23 @@ def _find_existing_real_model_output() -> Path | None:
     return None
 
 
-def _write_toy_weight_q8_gguf(path: Path) -> dict[str, np.ndarray]:
+def _write_toy_weight_q8_gguf(
+    path: Path,
+    *,
+    name: str = "toy-qwen35-9b",
+    existing_turboquant_metadata: bool = False,
+) -> dict[str, np.ndarray]:
     gguf = import_vendor_gguf()
     writer = gguf.GGUFWriter(path, arch="qwen35", use_temp_file=False)
-    writer.add_name("toy-qwen35-9b")
+    writer.add_name(name)
     writer.add_uint32("general.file_type", 7)
     writer.add_uint32("qwen35.block_count", 8)
     writer.add_uint32("qwen35.embedding_length", 64)
     writer.add_uint32("qwen35.attention.head_count", 2)
     writer.add_uint32("qwen35.attention.head_count_kv", 2)
     writer.add_uint32("qwen35.attention.key_length", 32)
+    if existing_turboquant_metadata:
+        writer.add_string("hypura.turboquant.mode", "provisional")
 
     converted_float = np.linspace(-1.0, 1.0, num=64, dtype=np.float32).reshape(2, 32)
     protected_float = np.linspace(-0.5, 0.5, num=64, dtype=np.float32).reshape(2, 32)
@@ -392,6 +399,35 @@ def test_convert_weight_turboquant_gguf_preserves_gemma4_ple_path(tmp_path: Path
     np.testing.assert_array_equal(np.array(attn.data, copy=False), expected_attn)
     np.testing.assert_array_equal(np.array(per_layer.data, copy=False), original["per_layer_q8"])
     np.testing.assert_array_equal(np.array(inp_gate.data, copy=False), original["inp_gate_q8"])
+
+
+def test_convert_weight_turboquant_gguf_can_replace_existing_metadata_and_infer_qwen35_4b(tmp_path: Path) -> None:
+    source = tmp_path / "toy-qwen35-4b-q8.gguf"
+    _write_toy_weight_q8_gguf(
+        source,
+        name="toy-qwen35-4b",
+        existing_turboquant_metadata=True,
+    )
+    output = tmp_path / "toy-qwen35-4b-tq4_1s.gguf"
+
+    with pytest.raises(ValueError, match="already contains hypura.turboquant metadata"):
+        convert_weight_turboquant_gguf(
+            source_path=source,
+            output_path=output,
+        )
+
+    summary = convert_weight_turboquant_gguf(
+        source_path=source,
+        output_path=output,
+        replace_existing_turboquant_metadata=True,
+    )
+
+    assert summary.model_family == "Qwen/Qwen3.5-4B"
+    assert summary.converted_tensor_names == ("blk.2.attn_q.weight",)
+    gguf = import_vendor_gguf()
+    reader = gguf.GGUFReader(output)
+    assert str(reader.get_field("hypura.turboquant.mode").contents()) == "triality-proxy-so8-pareto"
+    assert str(reader.get_field("hypura.turboquant.weight.policy").contents()) == "qwen35-config-i"
 
 
 def test_convert_weight_turboquant_gguf_rejects_non_q8_source_tensor(tmp_path: Path) -> None:
