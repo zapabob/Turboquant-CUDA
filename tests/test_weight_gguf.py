@@ -251,6 +251,7 @@ def _write_toy_weight_q8_gguf(
     *,
     name: str = "toy-qwen35-9b",
     existing_turboquant_metadata: bool = False,
+    elt_loop_required: bool = False,
 ) -> dict[str, np.ndarray]:
     gguf = import_vendor_gguf()
     writer = gguf.GGUFWriter(path, arch="qwen35", use_temp_file=False)
@@ -263,6 +264,10 @@ def _write_toy_weight_q8_gguf(
     writer.add_uint32("qwen35.attention.key_length", 32)
     if existing_turboquant_metadata:
         writer.add_string("hypura.turboquant.mode", "provisional")
+    if elt_loop_required:
+        writer.add_bool("elt.loop.required", True)
+        writer.add_string("elt.model_family", "elastic-looped-transformer/qwen3.5-4b")
+        writer.add_string("elt.loop.schedule", "L=4")
 
     converted_float = np.linspace(-1.0, 1.0, num=64, dtype=np.float32).reshape(2, 32)
     protected_float = np.linspace(-0.5, 0.5, num=64, dtype=np.float32).reshape(2, 32)
@@ -428,6 +433,34 @@ def test_convert_weight_turboquant_gguf_can_replace_existing_metadata_and_infer_
     reader = gguf.GGUFReader(output)
     assert str(reader.get_field("hypura.turboquant.mode").contents()) == "triality-proxy-so8-pareto"
     assert str(reader.get_field("hypura.turboquant.weight.policy").contents()) == "qwen35-config-i"
+
+
+def test_convert_weight_turboquant_gguf_infers_elt_looped_qwen35_and_preserves_metadata(tmp_path: Path) -> None:
+    source = tmp_path / "toy-elt-looped-q8.gguf"
+    _write_toy_weight_q8_gguf(
+        source,
+        name="toy-elt-looped",
+        elt_loop_required=True,
+    )
+    output = tmp_path / "toy-elt-looped-tq4_1s.gguf"
+
+    summary = convert_weight_turboquant_gguf(
+        source_path=source,
+        output_path=output,
+    )
+
+    assert summary.model_family == "ELT/Qwen3.5-looped"
+    assert summary.weight_plan["policy"] == "qwen35-config-i"
+    assert summary.weight_plan["modality_scope"] == "text-only"
+
+    gguf = import_vendor_gguf()
+    reader = gguf.GGUFReader(output)
+    assert bool(reader.get_field("elt.loop.required").contents()) is True
+    assert str(reader.get_field("elt.model_family").contents()) == "elastic-looped-transformer/qwen3.5-4b"
+    assert str(reader.get_field("elt.loop.schedule").contents()) == "L=4"
+    weight_payload = json.loads(str(reader.get_field("hypura.turboquant.weight.payload_json").contents()))
+    assert weight_payload["model_family"] == "ELT/Qwen3.5-looped"
+    assert weight_payload["policy"] == "qwen35-config-i"
 
 
 def test_convert_weight_turboquant_gguf_rejects_non_q8_source_tensor(tmp_path: Path) -> None:
