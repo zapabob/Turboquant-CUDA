@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HF_SCRIPT_PATH = REPO_ROOT / "scripts" / "eval_hf_online_qwen.py"
@@ -22,6 +24,8 @@ def _load_module(path: Path, name: str):
 
 
 def test_eval_hf_online_qwen_dry_run_writes_metadata(tmp_path: Path) -> None:
+    if importlib.util.find_spec("transformers") is None:
+        pytest.skip("transformers not installed (optional extra hf_qwen/eval)")
     module = _load_module(HF_SCRIPT_PATH, "eval_hf_online_qwen")
     output_dir = tmp_path / "hf"
     argv = [

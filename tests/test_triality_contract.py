@@ -46,6 +46,7 @@ def _load_module(path: Path, name: str):
 @pytest.mark.parametrize(
     "model_family",
     [
+        "Qwen/Qwen3.5-4B",
         "Qwen/Qwen3.5-9B",
         "Qwen/Qwen3.5-27B",
     ],
