@@ -1,0 +1,11 @@
+{
+  "determinant_atol": 0.01,
+  "manifest": "C:\\Users\\downl\\Desktop\\Turboquant-CUDA\\artifacts\\research_extension\\triality_full_train_prod_bf16\\metrics\\triality_rotation_manifest.csv",
+  "max_effective_determinant_error": 0.008674837823614001,
+  "max_effective_orthogonality_error": 0.00626921933144331,
+  "orthogonality_atol": 0.01,
+  "outliers": 0,
+  "rows": 4608,
+  "status": "pass",
+  "z_threshold": 6.0
+}

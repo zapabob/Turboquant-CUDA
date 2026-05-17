@@ -46,6 +46,10 @@ The latest implementation wave made the repo much closer to a full research-to-r
   - orthogonality and determinant metrics are now carried through the Triality metadata line.
 - **CUDA runtime closeout for `TQ4_1S`**
   - the vendored runtime now has a dedicated `TQ4_1S -> q8_0` scratch path for large batches, a fused packed-weight CUDA path for small decode, and real Gemma 4 CUDA smoke verification on this PC.
+- **Latest `zapabob/llama.cpp` reflection**
+  - the vendored submodule now tracks `zapabob/llama.cpp` `master` at `31b900be6`, which includes the May 17, 2026 upstream sync and TheTom TurboQuant KV-cache merge line.
+- **Triality SO(8) audit by bit and view**
+  - vector, spinor-plus proxy, and spinor-minus proxy rotations are now checked across bit settings for `R^T R ~= I`, `det(B) ~= 1`, and outlier-free behavior before they are promoted into README evidence.
 
 Implementation logs:
 
@@ -54,6 +58,7 @@ Implementation logs:
 - [`_docs/2026-04-20_triality-shared-abi-and-fail-closed-runtime.md`](_docs/2026-04-20_triality-shared-abi-and-fail-closed-runtime.md)
 - [`_docs/2026-04-21_triality-views-and-tq4_1s-q8_0-scratch-kernel.md`](_docs/2026-04-21_triality-views-and-tq4_1s-q8_0-scratch-kernel.md)
 - [`_docs/2026-04-21_tq4_1s_fused_cuda_closeout.md`](_docs/2026-04-21_tq4_1s_fused_cuda_closeout.md)
+- [`_docs/2026-05-17_latest-llama-sync-and-triality-so8-audit.md`](_docs/2026-05-17_latest-llama-sync-and-triality-so8-audit.md)
 
 ## Current Mainline
 
@@ -114,6 +119,37 @@ The current CUDA story is now concrete enough to state plainly:
 - **Real-model smoke:** the Gemma 4 `TQ4_1S` GGUF loads on this PC with `type tq4_1s: 228 tensors`, `ngl 99`, and completed `pp1` / `tg1` CUDA runs
 
 For the full closeout commands and verification output, see [`_docs/2026-04-21_tq4_1s_fused_cuda_closeout.md`](_docs/2026-04-21_tq4_1s_fused_cuda_closeout.md).
+
+## Triality SO(8) Rotation Audit
+
+Latest source: `artifacts/research_extension/triality_full_train_prod_bf16/metrics/triality_rotation_manifest.csv`
+
+This pass audits `4,608` learned SO(8) blocks across `bits in {2, 2.5, 3, 3.5, 4, 8}` and the three public Triality views:
+
+- `vector`
+- `spinor_plus_proxy`
+- `spinor_minus_proxy`
+
+The saved rotation artifacts are `bfloat16`, so the fail-closed validity budget is `1e-2` for both maximum effective orthogonality error and maximum effective determinant drift. The pass status is `pass`: `0` outliers, max effective `|R^T R - I| = 6.269e-03`, and max effective `|det(B) - 1| = 8.675e-03`.
+
+![Triality SO8 audit concept](_docs/assets/2026-05-17-triality-so8-audit/triality_so8_gptimage_style_concept.png)
+
+| View | Worst orthogonality bit | max effective orth err | Worst determinant bit | max effective det err |
+| --- | ---: | ---: | ---: | ---: |
+| `vector` | `8` | `6.269e-03` | `2` | `8.356e-03` |
+| `spinor_plus_proxy` | `8` | `5.369e-03` | `3` | `7.729e-03` |
+| `spinor_minus_proxy` | `4` | `5.437e-03` | `8` | `8.675e-03` |
+
+Full machine-readable and README-ready outputs:
+
+- [`triality_so8_rotation_audit_summary.md`](_docs/assets/2026-05-17-triality-so8-audit/triality_so8_rotation_audit_summary.md)
+- [`triality_so8_rotation_audit_summary.csv`](_docs/assets/2026-05-17-triality-so8-audit/triality_so8_rotation_audit_summary.csv)
+- [`triality_so8_rotation_audit_detail.csv`](_docs/assets/2026-05-17-triality-so8-audit/triality_so8_rotation_audit_detail.csv)
+- [`triality_so8_rotation_audit_status.json`](_docs/assets/2026-05-17-triality-so8-audit/triality_so8_rotation_audit_status.json)
+
+![Triality SO8 orthogonality by bit and view](_docs/assets/2026-05-17-triality-so8-audit/triality_so8_orthogonality_by_bit_view.png)
+
+![Triality SO8 determinant drift by bit and view](_docs/assets/2026-05-17-triality-so8-audit/triality_so8_determinant_by_bit_view.png)
 
 ## Eval Output Layout
 
