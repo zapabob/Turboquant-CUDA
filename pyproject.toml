@@ -20,6 +20,7 @@ dependencies = [
   "scipy>=1.14",
   "tqdm>=4.67",
   "uvicorn>=0.34",
+  "urllib3>=2.7.0",
 ]
 
 [project.optional-dependencies]
@@ -45,7 +46,6 @@ eval = [
   "bitsandbytes>=0.45",
   "datasets>=4.8",
   "evaluate>=0.4",
-  "lm-eval[api]>=0.4.11",
   "openai>=2.0",
   "safetensors>=0.5",
   "sentencepiece>=0.2",
