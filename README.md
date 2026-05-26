@@ -8,6 +8,17 @@
 - **What is not claimed here:** universal runtime wins across every model/runtime stack, a fully profiled final routing policy, or that the current CUDA line is the last word on TurboQuant performance
 - **Why this repo exists:** to keep research-faithful math, artifact contracts, and runtime integration in one place instead of treating them as separate hand-wavy projects
 
+## AI Engineering Evidence Card
+
+| Field | Current public evidence |
+| --- | --- |
+| Model surface | Qwen3.5-9B captured KV replay, Gemma 4 `TQ4_1S` GGUF loadability smoke, and vendored `zapabob/llama.cpp` runtime consumption |
+| Experiment data | Captured replay matrices, Triality SO(8) manifests, deterministic fixture exports, and GGUF artifact contracts |
+| Metrics | Hidden cosine, logit cosine, attention relative error, memory ratio, runtime plots, Friedman tests, Wilcoxon-Holm pairwise comparisons, orthogonality, and determinant drift |
+| Repro command | `uv sync --extra cu128 --extra dev --extra hf_qwen --extra eval`, then `uv run python scripts\env_check.py` and `uv run python scripts\validate_repo_contract.py` |
+| Engineering claim | This repo proves the research-to-runtime chain, not a universal performance win across every model and hardware setup |
+| Limitations | Runtime routing thresholds and CUDA kernel mix are still research-grade and should be re-profiled for each target model/runtime |
+
 ![Qwen 3060 quality summary](_docs/assets/qwen_3060_matrix_attention.png)
 
 ![Qwen 3060 runtime summary](_docs/assets/qwen_3060_matrix_runtime.png)
