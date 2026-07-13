@@ -87,6 +87,28 @@ TRIALITY_NCKA_COORDINATE_NAMES = (
     "memory_ratio",
 )
 
+_NCKA_BRANCH_NAMES = TRIALITY_CONSENSUS_VIEWS
+_NCKA_BRANCH_COORDINATE_SCALES = {
+    "branch_entropy": 1.0,
+    "orthogonality_error": 0.5,
+    "determinant_error": 0.5,
+    "expected_quant_error": 1.0,
+    "candidate_cross_score_mean": 1.25,
+    "candidate_cross_score_variance": 0.75,
+}
+_NCKA_PAIRWISE_EDGES = {
+    "pairwise_js.vector_plus": frozenset({0, 1}),
+    "pairwise_js.vector_minus": frozenset({0, 2}),
+    "pairwise_js.plus_minus": frozenset({1, 2}),
+}
+_NCKA_GLOBAL_COORDINATE_SCALES = {
+    "winner_margin": 1.0,
+    "latency_multiplier": 0.75,
+    "memory_ratio": 0.5,
+}
+_NCKA_OUTER_KNOT_AXIS = (0.0, 0.08, 0.16)
+_NCKA_OUTER_VALUE_AXIS = (0.0, 0.02, 0.20)
+
 
 def _canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -156,6 +178,29 @@ def _tensor(shape: list[int], values: Iterable[float]) -> dict[str, Any]:
     return {"dtype": "f32", "shape": shape, "data": data}
 
 
+def _ncka_inner_slope(
+    *, output_branch: int, outer_index: int, coordinate_name: str
+) -> float:
+    if outer_index != 0:
+        return 0.0
+    for coordinate_family, family_scale in _NCKA_BRANCH_COORDINATE_SCALES.items():
+        for coordinate_branch, branch_name in enumerate(_NCKA_BRANCH_NAMES):
+            if coordinate_name != f"{coordinate_family}.{branch_name}":
+                continue
+            if coordinate_branch != output_branch:
+                return 0.0
+            return 0.024 * family_scale
+
+    edge = _NCKA_PAIRWISE_EDGES.get(coordinate_name)
+    if edge is not None:
+        return 0.012 if output_branch in edge else 0.004
+
+    global_scale = _NCKA_GLOBAL_COORDINATE_SCALES.get(coordinate_name)
+    if global_scale is not None:
+        return 0.004 * global_scale
+    raise ValueError(f"unsupported NC-KA coordinate {coordinate_name!r}")
+
+
 def build_triality_v2_tensors(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Build the deterministic F32 tensor bundle referenced by a schema-v2 payload.
 
@@ -201,23 +246,45 @@ def build_triality_v2_tensors(payload: dict[str, Any]) -> dict[str, dict[str, An
         knot_count = int(ncka["knot_count"])
         coordinate_min = [0.0] * coordinate_count
         coordinate_max = [1.0] * coordinate_count
-        knot_axis = [index / (knot_count - 1) for index in range(knot_count)]
-        inner_knots = knot_axis * (
+        inner_knot_axis = [index / (knot_count - 1) for index in range(knot_count)]
+        if knot_count != len(_NCKA_OUTER_KNOT_AXIS):
+            raise ValueError("finite_moment_ka_v1 requires three outer knots")
+        inner_knots = inner_knot_axis * (
             TRIALITY_CONSENSUS_BRANCH_COUNT * outer_count * coordinate_count
         )
         inner_values = [
-            (branch + 1) * (outer + 1) * (coordinate + 1) * knot / 10_000.0
+            _ncka_inner_slope(
+                output_branch=branch,
+                outer_index=outer,
+                coordinate_name=ncka["coordinate_names"][coordinate],
+            )
+            * knot
             for branch in range(TRIALITY_CONSENSUS_BRANCH_COUNT)
             for outer in range(outer_count)
             for coordinate in range(coordinate_count)
-            for knot in knot_axis
+            for knot in inner_knot_axis
         ]
-        outer_knots = knot_axis * (TRIALITY_CONSENSUS_BRANCH_COUNT * outer_count)
+        for branch in range(TRIALITY_CONSENSUS_BRANCH_COUNT):
+            maximum_inner_sum = sum(
+                _ncka_inner_slope(
+                    output_branch=branch,
+                    outer_index=0,
+                    coordinate_name=coordinate_name,
+                )
+                for coordinate_name in ncka["coordinate_names"]
+            )
+            if maximum_inner_sum > _NCKA_OUTER_KNOT_AXIS[-1]:
+                raise ValueError(
+                    "NC-KA inner sum exceeds the outer interpolation domain"
+                )
+        outer_knots = list(_NCKA_OUTER_KNOT_AXIS) * (
+            TRIALITY_CONSENSUS_BRANCH_COUNT * outer_count
+        )
         outer_values = [
-            (branch + 1) * (outer + 1) * knot / 100.0
-            for branch in range(TRIALITY_CONSENSUS_BRANCH_COUNT)
+            value if outer == 0 else 0.0
+            for _branch in range(TRIALITY_CONSENSUS_BRANCH_COUNT)
             for outer in range(outer_count)
-            for knot in knot_axis
+            for value in _NCKA_OUTER_VALUE_AXIS
         ]
         tensors.update(
             {
