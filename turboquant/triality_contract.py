@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from turboquant.schema import build_paper_turboquant_config
 from turboquant.triality_schema_v2 import (
+    TRIALITY_IDENTITY_DEV_ROTATION_POLICY,
     TRIALITY_PAYLOAD_FORMAT_V2,
     TRIALITY_SCHEMA_V2,
     build_triality_v2_extension,
@@ -127,7 +128,7 @@ TRIALITY_GGUF_PAYLOAD_FORMAT_V1 = TRIALITY_GGUF_PAYLOAD_FORMAT
 TRIALITY_GGUF_PAYLOAD_FORMAT_V2 = TRIALITY_PAYLOAD_FORMAT_V2
 TRIALITY_GGUF_NAMESPACE = "hypura.turboquant"
 ELT_LOOPED_QWEN35_MODEL_FAMILY = "ELT/Qwen3.5-looped"
-TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES = ("bf16", "f16", "q8_0")
+TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES = ("bf16", "f16", "q8_0", "q4_0")
 TRIALITY_WEIGHT_ALLOWED_TENSOR_CODECS = ("tq4_1s", "q4_k", "q8_0")
 TRIALITY_ALLOWED_MODES: tuple[TrialityPublicMode, ...] = (
     "paper-faithful",
@@ -457,6 +458,7 @@ def build_default_weight_plan(
     protected_roles: list[str] | None = None,
     protected_layers: list[int] | None = None,
     modality_scope: str | None = None,
+    enabled: bool = True,
 ) -> dict[str, Any]:
     normalized_family = normalize_model_family(model_family)
     normalized_source_ftype = source_ftype.strip().lower()
@@ -465,6 +467,43 @@ def build_default_weight_plan(
             "Unsupported weight source_ftype "
             f"{source_ftype!r}; expected one of {', '.join(TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES)}"
         )
+
+    if not enabled:
+        if normalized_source_ftype != "q4_0":
+            raise ValueError(
+                "disabled weight conversion is only valid for q4_0 sources"
+            )
+        if policy not in {None, "preserve-source-weights"}:
+            raise ValueError(
+                "disabled weight conversion requires policy='preserve-source-weights'"
+            )
+        if protected_roles is not None and protected_roles != []:
+            raise ValueError(
+                "disabled weight conversion requires empty protected_roles"
+            )
+        if protected_layers is not None and protected_layers != []:
+            raise ValueError(
+                "disabled weight conversion requires empty protected_layers"
+            )
+        if modality_scope not in {None, "text-only"}:
+            raise ValueError(
+                "disabled weight conversion requires modality_scope='text-only'"
+            )
+        return {
+            "enabled": False,
+            "schema": "hypura.turboquant.weight.v1",
+            "codec": "tq4_1s",
+            "model_family": model_family,
+            "source_ftype": "q4_0",
+            "policy": "preserve-source-weights",
+            "protected_roles": [],
+            "protected_layers": [],
+            "modality_scope": "text-only",
+            "tensor_plan": {},
+        }
+
+    if normalized_source_ftype == "q4_0":
+        raise ValueError("q4_0 sources require disabled weight conversion")
 
     if _is_qwen35_family(normalized_family):
         resolved_policy = policy or "qwen35-config-i"
@@ -502,7 +541,6 @@ def build_default_weight_plan(
 
     resolved_layers = protected_layers or _boundary_layers(num_layers)
     return {
-        "enabled": True,
         "schema": "hypura.turboquant.weight.v1",
         "codec": "tq4_1s",
         "model_family": model_family,
@@ -521,6 +559,10 @@ def validate_weight_plan(
     model_family: str,
     num_layers: int,
 ) -> None:
+    enabled_value = weight_plan.get("enabled", True)
+    if not isinstance(enabled_value, bool):
+        raise ValueError("weight_plan.enabled must be a boolean when present")
+    enabled = enabled_value
     expected_weight_plan = build_default_weight_plan(
         model_family=model_family,
         num_layers=num_layers,
@@ -533,11 +575,26 @@ def validate_weight_plan(
         modality_scope=str(weight_plan.get("modality_scope"))
         if weight_plan.get("modality_scope") is not None
         else None,
+        enabled=enabled,
     )
     if str(weight_plan.get("schema")) != "hypura.turboquant.weight.v1":
         raise ValueError("weight_plan.schema must be 'hypura.turboquant.weight.v1'")
     if str(weight_plan.get("codec")) != "tq4_1s":
         raise ValueError("weight_plan.codec must be 'tq4_1s'")
+    expected_keys = set(expected_weight_plan)
+    if enabled and "enabled" in weight_plan:
+        expected_keys.add("enabled")
+    if set(weight_plan) != expected_keys:
+        raise ValueError("weight_plan keys must match the canonical contract")
+    if not enabled:
+        if weight_plan != expected_weight_plan:
+            raise ValueError(
+                "disabled weight_plan must preserve canonical q4_0 source weights"
+            )
+        return
+    if weight_plan.get("enabled", True) is not True:
+        raise ValueError("enabled weight_plan must not disable conversion")
+
     tensor_plan = weight_plan.get("tensor_plan")
     if not isinstance(tensor_plan, dict) or not tensor_plan:
         raise ValueError("weight_plan.tensor_plan must be a non-empty object")
@@ -613,11 +670,14 @@ def build_triality_payload(
     profile_id: str = "v2",
     enable_ncka: bool = False,
     enable_urt: bool = False,
+    rotation_policy: str | None = None,
+    weight_enabled: bool = True,
 ) -> dict[str, Any]:
     spec = resolve_triality_mode_spec(mode)
     resolved_rotation_seed = (
         spec.rotation_seed if rotation_seed is None else rotation_seed
     )
+    resolved_rotation_policy = rotation_policy or spec.rotation_policy
     resolved_triality_view = normalize_triality_view(spec.triality_view)
     resolved_runtime_mode = normalize_triality_runtime_mode(spec.runtime_mode)
     resolved_cache_type_k = public_cache_type_k_for_runtime_mode(resolved_runtime_mode)
@@ -635,6 +695,11 @@ def build_triality_payload(
 
     if schema_version not in {TRIALITY_GGUF_SCHEMA_V1, TRIALITY_GGUF_SCHEMA_V2}:
         raise ValueError(f"Unsupported Triality schema_version {schema_version}")
+    if (
+        resolved_rotation_policy == TRIALITY_IDENTITY_DEV_ROTATION_POLICY
+        and schema_version != TRIALITY_GGUF_SCHEMA_V2
+    ):
+        raise ValueError("identity_dev rotation_policy requires Triality schema-v2")
 
     payload: dict[str, Any] = {
         "schema_kind": "triality_gguf_payload",
@@ -646,7 +711,7 @@ def build_triality_payload(
         "head_dim": int(head_dim),
         "num_layers": int(num_layers),
         "num_kv_heads": int(num_kv_heads),
-        "rotation_policy": spec.rotation_policy,
+        "rotation_policy": resolved_rotation_policy,
         "rotation_block_size": TRIALITY_ROTATION_BLOCK_SIZE,
         "rotation_seed": int(resolved_rotation_seed),
         "triality_view": resolved_triality_view,
@@ -674,6 +739,7 @@ def build_triality_payload(
             protected_roles=weight_protected_roles,
             protected_layers=weight_protected_layers,
             modality_scope=modality_scope,
+            enabled=weight_enabled,
         ),
     }
 
@@ -702,6 +768,7 @@ def build_triality_payload(
                 head_dim=head_dim,
                 num_layers=num_layers,
                 profile_id=profile_id,
+                rotation_policy=resolved_rotation_policy,
                 enable_ncka=enable_ncka,
                 enable_urt=enable_urt,
             )
@@ -776,6 +843,12 @@ def build_triality_metadata(
         raise ValueError(
             f"Unsupported Triality schema_version {resolved_schema_version}"
         )
+    resolved_rotation_policy = rotation_policy or spec.rotation_policy
+    if (
+        resolved_rotation_policy == TRIALITY_IDENTITY_DEV_ROTATION_POLICY
+        and resolved_schema_version != TRIALITY_GGUF_SCHEMA_V2
+    ):
+        raise ValueError("identity_dev rotation_policy requires Triality schema-v2")
     payload_format = (
         TRIALITY_GGUF_PAYLOAD_FORMAT_V2
         if resolved_schema_version == TRIALITY_GGUF_SCHEMA_V2
@@ -787,7 +860,7 @@ def build_triality_metadata(
         "hypura.turboquant.enabled": True,
         "hypura.turboquant.mode": spec.mode,
         "hypura.turboquant.codec": "tq4_1s",
-        "hypura.turboquant.rotation_policy": rotation_policy or spec.rotation_policy,
+        "hypura.turboquant.rotation_policy": resolved_rotation_policy,
         "hypura.turboquant.rotation_block_size": TRIALITY_ROTATION_BLOCK_SIZE,
         "hypura.turboquant.rotation_seed": int(
             spec.rotation_seed if rotation_seed is None else rotation_seed
@@ -855,9 +928,19 @@ def build_triality_metadata(
 def validate_triality_payload(payload: dict[str, Any]) -> None:
     if payload.get("schema_kind") != "triality_gguf_payload":
         raise ValueError("payload schema_kind must be 'triality_gguf_payload'")
-    schema_version = int(payload.get("schema_version", 0))
+    try:
+        schema_version = int(payload.get("schema_version", 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("payload schema_version must be an integer") from exc
     if schema_version not in {TRIALITY_GGUF_SCHEMA_V1, TRIALITY_GGUF_SCHEMA_V2}:
         raise ValueError(f"Unsupported payload schema_version {schema_version}")
+    if (
+        payload.get("rotation_policy") == TRIALITY_IDENTITY_DEV_ROTATION_POLICY
+        and schema_version != TRIALITY_GGUF_SCHEMA_V2
+    ):
+        raise ValueError("identity_dev rotation_policy requires Triality schema-v2")
+    if schema_version == TRIALITY_GGUF_SCHEMA_V2:
+        validate_triality_v2_payload(payload)
     if str(payload.get("codec", "")).strip().lower() != "tq4_1s":
         raise ValueError("payload codec must be 'tq4_1s'")
     resolve_triality_mode_spec(str(payload.get("mode")))
@@ -908,8 +991,6 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
         ),
         num_layers=int(payload.get("num_layers", 0)),
     )
-    if schema_version == TRIALITY_GGUF_SCHEMA_V2:
-        validate_triality_v2_payload(payload)
 
 
 def validate_triality_metadata(metadata: dict[str, Any]) -> None:
@@ -923,6 +1004,12 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
     schema_version = int(metadata["hypura.turboquant.schema_version"])
     if schema_version not in {TRIALITY_GGUF_SCHEMA_V1, TRIALITY_GGUF_SCHEMA_V2}:
         raise ValueError(f"Unsupported Triality schema_version {schema_version}")
+    metadata_rotation_policy = str(metadata["hypura.turboquant.rotation_policy"])
+    if (
+        metadata_rotation_policy == TRIALITY_IDENTITY_DEV_ROTATION_POLICY
+        and schema_version != TRIALITY_GGUF_SCHEMA_V2
+    ):
+        raise ValueError("identity_dev rotation_policy requires Triality schema-v2")
 
     codec = str(metadata["hypura.turboquant.codec"]).strip().lower()
     if codec != "tq4_1s":
@@ -1004,6 +1091,10 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
         if int(parsed_payload.get("schema_version", 0)) != schema_version:
             raise ValueError(
                 "metadata schema_version does not match payload schema_version"
+            )
+        if parsed_payload.get("rotation_policy") != metadata_rotation_policy:
+            raise ValueError(
+                "metadata rotation_policy does not match payload rotation_policy"
             )
         if schema_version == TRIALITY_GGUF_SCHEMA_V2:
             validate_triality_v2_metadata(metadata, parsed_payload)

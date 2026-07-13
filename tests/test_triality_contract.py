@@ -28,6 +28,7 @@ from turboquant.triality_contract import (
     normalize_public_cache_type_v,
     normalize_triality_runtime_mode,
     normalize_triality_view,
+    validate_triality_payload,
 )
 
 
@@ -84,6 +85,50 @@ def test_qwen35_payload_uses_weight_v1_config_i_contract(model_family: str) -> N
     }
 
 
+def test_schema_v1_legacy_weight_plan_shape_omits_optional_enabled() -> None:
+    payload = build_triality_payload(
+        mode="triality-proxy-so8-pareto",
+        head_dim=128,
+        num_layers=4,
+        num_kv_heads=2,
+        model_family="Qwen/Qwen3.5-test",
+        schema_version=1,
+    )
+    legacy_weight_plan = {
+        "schema": "hypura.turboquant.weight.v1",
+        "codec": "tq4_1s",
+        "model_family": "Qwen/Qwen3.5-test",
+        "source_ftype": "q8_0",
+        "policy": "qwen35-config-i",
+        "protected_roles": [
+            "embedding",
+            "norm",
+            "output_head",
+            "recurrent_state",
+        ],
+        "protected_layers": [0, 1, 2, 3],
+        "modality_scope": "text-only",
+        "tensor_plan": {
+            "blk.*.attn_q.weight": "tq4_1s",
+            "blk.*.attn_k.weight": "tq4_1s",
+            "blk.*.attn_v.weight": "tq4_1s",
+            "blk.*.attn_output.weight": "tq4_1s",
+            "blk.*.ffn_gate.weight": "tq4_1s",
+            "blk.*.ffn_up.weight": "tq4_1s",
+            "blk.*.ffn_down.weight": "q4_k",
+        },
+    }
+    assert payload["weight_plan"] == legacy_weight_plan
+    validate_triality_payload(payload)
+
+    explicit_enabled_payload = dict(payload)
+    explicit_enabled_payload["weight_plan"] = {
+        **legacy_weight_plan,
+        "enabled": True,
+    }
+    validate_triality_payload(explicit_enabled_payload)
+
+
 @pytest.mark.parametrize(
     "model_family",
     [
@@ -92,7 +137,9 @@ def test_qwen35_payload_uses_weight_v1_config_i_contract(model_family: str) -> N
         "google/gemma-4-26b-a4b-it",
     ],
 )
-def test_gemma4_payload_uses_multimodal_safe_weight_v1_contract(model_family: str) -> None:
+def test_gemma4_payload_uses_multimodal_safe_weight_v1_contract(
+    model_family: str,
+) -> None:
     payload = build_triality_payload(
         mode="triality-proxy-so8-pareto",
         head_dim=256,
@@ -161,10 +208,18 @@ def test_triality_metadata_includes_weight_codec_and_v1_payload() -> None:
     )
 
     assert metadata["hypura.turboquant.codec"] == "tq4_1s"
-    assert metadata["hypura.turboquant.rotation_block_size"] == TRIALITY_ROTATION_BLOCK_SIZE
+    assert (
+        metadata["hypura.turboquant.rotation_block_size"]
+        == TRIALITY_ROTATION_BLOCK_SIZE
+    )
     assert metadata["hypura.turboquant.runtime_mode"] == TRIALITY_RUNTIME_MODE
-    assert metadata["hypura.turboquant.cache_type_k"] == TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR
-    assert metadata["hypura.turboquant.cache_type_v"] == TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0
+    assert (
+        metadata["hypura.turboquant.cache_type_k"]
+        == TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR
+    )
+    assert (
+        metadata["hypura.turboquant.cache_type_v"] == TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0
+    )
     assert metadata["hypura.turboquant.weight.codec"] == "tq4_1s"
     weight_payload = json.loads(metadata["hypura.turboquant.weight.payload_json"])
     assert weight_payload["schema"] == "hypura.turboquant.weight.v1"
@@ -176,17 +231,45 @@ def test_triality_alias_normalization_accepts_the_tom_and_zapabob_spellings() ->
     assert normalize_triality_runtime_mode("triality-vector") == TRIALITY_RUNTIME_MODE
     assert normalize_triality_runtime_mode("research-kv-split") == TRIALITY_RUNTIME_MODE
     assert normalize_triality_runtime_mode("triality_vector") == TRIALITY_RUNTIME_MODE
-    assert normalize_triality_runtime_mode("triality-plus") == TRIALITY_RUNTIME_MODE_PLUS
-    assert normalize_triality_runtime_mode("spinor_minus_proxy") == TRIALITY_RUNTIME_MODE_MINUS
-    assert normalize_triality_runtime_mode("best_per_layer") == TRIALITY_RUNTIME_MODE_BEST_PER_LAYER
-    assert normalize_public_cache_type_k("vector") == TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR
-    assert normalize_public_cache_type_k("triality-plus") == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
-    assert normalize_public_cache_type_k("spinor_plus_proxy") == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
-    assert normalize_public_cache_type_k("triality-minus") == TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS
-    assert normalize_public_cache_type_k("best_per_layer") == TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER
-    assert normalize_public_cache_type_v("turbo2") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2
-    assert normalize_public_cache_type_v("turbo3") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3
-    assert normalize_public_cache_type_v("turbo4") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4
+    assert (
+        normalize_triality_runtime_mode("triality-plus") == TRIALITY_RUNTIME_MODE_PLUS
+    )
+    assert (
+        normalize_triality_runtime_mode("spinor_minus_proxy")
+        == TRIALITY_RUNTIME_MODE_MINUS
+    )
+    assert (
+        normalize_triality_runtime_mode("best_per_layer")
+        == TRIALITY_RUNTIME_MODE_BEST_PER_LAYER
+    )
+    assert (
+        normalize_public_cache_type_k("vector") == TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR
+    )
+    assert (
+        normalize_public_cache_type_k("triality-plus")
+        == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
+    )
+    assert (
+        normalize_public_cache_type_k("spinor_plus_proxy")
+        == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
+    )
+    assert (
+        normalize_public_cache_type_k("triality-minus")
+        == TRIALITY_PUBLIC_CACHE_TYPE_K_MINUS
+    )
+    assert (
+        normalize_public_cache_type_k("best_per_layer")
+        == TRIALITY_PUBLIC_CACHE_TYPE_K_BEST_PER_LAYER
+    )
+    assert (
+        normalize_public_cache_type_v("turbo2") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2
+    )
+    assert (
+        normalize_public_cache_type_v("turbo3") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO3
+    )
+    assert (
+        normalize_public_cache_type_v("turbo4") == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4
+    )
     assert normalize_public_cache_type_v("q8_0") == TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0
     assert normalize_triality_view("plus") == "spinor_plus_proxy"
     assert normalize_triality_view("minus") == "spinor_minus_proxy"
@@ -213,12 +296,19 @@ def test_triality_metadata_supports_spinor_plus_public_view() -> None:
 
     assert metadata["hypura.turboquant.triality_view"] == "spinor_plus_proxy"
     assert metadata["hypura.turboquant.runtime_mode"] == TRIALITY_RUNTIME_MODE_PLUS
-    assert metadata["hypura.turboquant.cache_type_k"] == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
-    assert metadata["hypura.turboquant.cache_type_v"] == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4
+    assert (
+        metadata["hypura.turboquant.cache_type_k"] == TRIALITY_PUBLIC_CACHE_TYPE_K_PLUS
+    )
+    assert (
+        metadata["hypura.turboquant.cache_type_v"]
+        == TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO4
+    )
     assert metadata["hypura.turboquant.view_bundle_complete"] is True
 
 
-def test_triality_metadata_supports_best_per_layer_runtime_when_bundle_is_complete() -> None:
+def test_triality_metadata_supports_best_per_layer_runtime_when_bundle_is_complete() -> (
+    None
+):
     payload = build_triality_payload(
         mode="triality-proxy-so8-pareto",
         head_dim=128,
@@ -236,7 +326,10 @@ def test_triality_metadata_supports_best_per_layer_runtime_when_bundle_is_comple
         runtime_mode="best_per_layer",
     )
 
-    assert metadata["hypura.turboquant.runtime_mode"] == TRIALITY_RUNTIME_MODE_BEST_PER_LAYER
+    assert (
+        metadata["hypura.turboquant.runtime_mode"]
+        == TRIALITY_RUNTIME_MODE_BEST_PER_LAYER
+    )
     assert metadata["hypura.turboquant.view_bundle_complete"] is True
 
 
@@ -276,7 +369,9 @@ def test_export_triality_fixture_writes_mmproj_pair_for_gemma4(tmp_path: Path) -
     assert payload["weight_plan"]["codec"] == "tq4_1s"
 
 
-def test_export_triality_fixture_writes_text_only_manifest_for_qwen35(tmp_path: Path) -> None:
+def test_export_triality_fixture_writes_text_only_manifest_for_qwen35(
+    tmp_path: Path,
+) -> None:
     module = _load_module(EXPORT_SCRIPT_PATH, "export_triality_fixture_qwen")
     output_dir = tmp_path / "fixtures"
     argv = [

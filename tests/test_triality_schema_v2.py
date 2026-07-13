@@ -15,6 +15,7 @@ from turboquant.triality_contract import (
     build_triality_metadata,
     build_triality_payload,
     payload_json_dumps,
+    validate_triality_metadata,
     validate_triality_payload,
 )
 from turboquant.triality_fixture_gguf import read_fixture_gguf, write_fixture_gguf
@@ -132,6 +133,30 @@ def test_schema_v2_contract_contains_exact_three_view_bundle() -> None:
             lambda value: value["urt"].__setitem__("operator_word_sha256", "0" * 64),
             "operator word hash",
         ),
+        (
+            lambda value: value.__setitem__("rotation_polciy", "block_so8_learned"),
+            "unexpected rotation_polciy",
+        ),
+        (
+            lambda value: value.__setitem__("num_layers", "2"),
+            "num_layers must be an integer",
+        ),
+        (
+            lambda value: value["consensus"]["rows"][0].__setitem__("layer", True),
+            "layer must be an integer",
+        ),
+        (
+            lambda value: value["consensus"].__setitem__("js_fallback_threshold", 1),
+            "must be a finite floating-point value",
+        ),
+        (
+            lambda value: value["ncka"].__setitem__("enabled", "true"),
+            "ncka.enabled must be a boolean",
+        ),
+        (
+            lambda value: value.__setitem__("rotation_policy", "identity_typo"),
+            "rotation_policy must be one of",
+        ),
     ],
 )
 def test_schema_v2_payload_rejects_malformed_contracts(mutate, match: str) -> None:
@@ -139,6 +164,89 @@ def test_schema_v2_payload_rejects_malformed_contracts(mutate, match: str) -> No
     mutate(payload)
     with pytest.raises(ValueError, match=match):
         validate_triality_payload(payload)
+
+
+def test_identity_dev_requires_marker_disabled_weights_and_no_override() -> None:
+    with pytest.raises(ValueError, match="development identity marker"):
+        build_triality_payload(
+            mode="triality-proxy-so8-pareto",
+            head_dim=8,
+            num_layers=1,
+            num_kv_heads=1,
+            model_family="llama",
+            weight_source_ftype="q4_0",
+            weight_enabled=False,
+            rotation_policy="identity_dev",
+            schema_version=2,
+        )
+
+    payload = build_triality_payload(
+        mode="triality-proxy-so8-pareto",
+        head_dim=8,
+        num_layers=1,
+        num_kv_heads=1,
+        model_family="llama",
+        weight_source_ftype="q4_0",
+        weight_enabled=False,
+        rotation_policy="identity_dev",
+        schema_version=2,
+        source_manifest={"development_identity_views": True},
+    )
+    metadata = build_triality_metadata(
+        mode="triality-proxy-so8-pareto",
+        payload_json=payload_json_dumps(payload),
+        weight_plan=payload["weight_plan"],
+        rotation_policy="identity_dev",
+        schema_version=2,
+    )
+    assert metadata["hypura.turboquant.triality.override_allowed"] is False
+    metadata["hypura.turboquant.triality.override_allowed"] = True
+    with pytest.raises(ValueError, match="does not match payload"):
+        validate_triality_metadata(metadata)
+
+
+def test_identity_dev_is_rejected_by_all_schema_v1_paths() -> None:
+    with pytest.raises(ValueError, match="requires Triality schema-v2"):
+        build_triality_payload(
+            mode="triality-proxy-so8-pareto",
+            head_dim=8,
+            num_layers=1,
+            num_kv_heads=1,
+            rotation_policy="identity_dev",
+            schema_version=1,
+        )
+
+    payload = build_triality_payload(
+        mode="triality-proxy-so8-pareto",
+        head_dim=8,
+        num_layers=1,
+        num_kv_heads=1,
+        schema_version=1,
+    )
+    handcrafted_payload = deepcopy(payload)
+    handcrafted_payload["rotation_policy"] = "identity_dev"
+    with pytest.raises(ValueError, match="requires Triality schema-v2"):
+        validate_triality_payload(handcrafted_payload)
+
+    payload_json = payload_json_dumps(payload)
+    with pytest.raises(ValueError, match="requires Triality schema-v2"):
+        build_triality_metadata(
+            mode="triality-proxy-so8-pareto",
+            payload_json=payload_json,
+            weight_plan=payload["weight_plan"],
+            rotation_policy="identity_dev",
+            schema_version=1,
+        )
+
+    metadata = build_triality_metadata(
+        mode="triality-proxy-so8-pareto",
+        payload_json=payload_json,
+        weight_plan=payload["weight_plan"],
+        schema_version=1,
+    )
+    metadata["hypura.turboquant.rotation_policy"] = "identity_dev"
+    with pytest.raises(ValueError, match="requires Triality schema-v2"):
+        validate_triality_metadata(metadata)
 
 
 def test_rotation_validation_rejects_off_block_coupling() -> None:

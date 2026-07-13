@@ -73,8 +73,17 @@ from turboquant.triality_contract import (
 from turboquant.turboquant_mse import TurboQuantMSE
 from turboquant.turboquant_prod import TurboQuantProd
 from turboquant.triality_schema_v2 import build_triality_v2_tensors
+from turboquant.triality_live_gguf import (
+    TrialityLiveGGUFSummary,
+    manifest_path_for,
+    materialize_triality_live_gguf,
+    verify_triality_live_gguf,
+)
 from turboquant.types import TurboQuantMSEConfig, TurboQuantProdConfig
-from turboquant.weight_gguf import WeightGGUFConversionSummary, convert_weight_turboquant_gguf
+from turboquant.weight_gguf import (
+    WeightGGUFConversionSummary,
+    convert_weight_turboquant_gguf,
+)
 
 __all__ = [
     "ChannelBitAllocation",
@@ -109,6 +118,7 @@ __all__ = [
     "TrialityProxyMSE",
     "TrialityProxyProd",
     "TrialityModeSpec",
+    "TrialityLiveGGUFSummary",
     "RESEARCH_SCHEMA_KIND",
     "V_ABLATION_MODES",
     "ValueResearchConfig",
@@ -124,6 +134,8 @@ __all__ = [
     "evaluate_paper_attention_grid",
     "infer_gguf_attention_head_dim",
     "infer_gguf_block_count",
+    "manifest_path_for",
+    "materialize_triality_live_gguf",
     "package_turboquant_gguf",
     "payload_json_dumps",
     "read_hypura_gguf_bridge_config",
@@ -139,6 +151,7 @@ __all__ = [
     "TurboQuantProd",
     "TurboQuantProdConfig",
     "validate_triality_metadata",
+    "verify_triality_live_gguf",
     "validate_triality_payload",
     "validate_turboquant_gguf_contract",
     "validate_paper_turboquant_config",

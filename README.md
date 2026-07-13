@@ -336,6 +336,33 @@ uv run python scripts\verify_triality_export.py `
   --manifest artifacts\triality_fixtures\triality-proxy-so8-pareto\triality-fixture-manifest.json
 ```
 
+### 5. Materialize and verify a live Triality wiring bundle
+
+```powershell
+uv run python scripts\materialize_triality_live_gguf.py `
+  --input-gguf path\to\source-q4_0.gguf `
+  --output-gguf path\to\source-q4_0.triality-v2.gguf `
+  --profile-id liveq4 `
+  --development-identity-views `
+  --disable-weight-conversion
+
+uv run python scripts\verify_triality_live_gguf.py `
+  --source-gguf path\to\source-q4_0.gguf `
+  --model-gguf path\to\source-q4_0.triality-v2.gguf
+```
+
+This development-only path accepts llama `Q4_0` GGUF input and preserves every
+source tensor byte-for-byte. It refuses an in-place or existing output, keeps the
+artifact contract at `tq_schema_version = 1`, and adds the public Triality contract
+under `hypura.turboquant.schema_version = 2`. Weight conversion remains disabled
+with a preserve-source plan, and canonical NC-KA/URT remain disabled.
+GGUF and sidecar publication uses one lock and atomic no-replace filesystem links;
+a late destination race cannot overwrite an existing file or leave a crossed pair.
+
+Use a short ASCII profile ID: every generated GGUF tensor name must remain below
+64 UTF-8 bytes. The identity rotation bundle is wiring and loader-admission QA; it
+does not establish learned-rotation quality, model-quality parity, or performance.
+
 ## Scope And Non-Claims
 
 This repo is intentionally strict about what it claims.

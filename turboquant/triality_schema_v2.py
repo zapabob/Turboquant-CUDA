@@ -20,7 +20,45 @@ TRIALITY_NCKA_SCHEMA_VERSION = 1
 TRIALITY_NCKA_CONTROLLER_TYPE = "finite_moment_ka_v1"
 TRIALITY_URT_SCHEMA_VERSION = 1
 TRIALITY_URT_ALGEBRA_ID = "octonion_triality_proxy_v1"
+TRIALITY_IDENTITY_DEV_ROTATION_POLICY = "identity_dev"
+TRIALITY_V2_ROTATION_POLICIES = frozenset(
+    {"random_haar", "block_so8_learned", TRIALITY_IDENTITY_DEV_ROTATION_POLICY}
+)
 TRIALITY_PROFILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+_TRIALITY_V2_TOP_LEVEL_KEYS = frozenset(
+    {
+        "schema_kind",
+        "schema_version",
+        "codec",
+        "mode",
+        "model_family",
+        "runtime_mode",
+        "head_dim",
+        "num_layers",
+        "num_kv_heads",
+        "rotation_policy",
+        "rotation_block_size",
+        "rotation_seed",
+        "triality_view",
+        "triality_mix",
+        "cache_type_k",
+        "cache_type_v",
+        "view_bundle_complete",
+        "orthogonality_error",
+        "determinant_error_max",
+        "paper_fidelity",
+        "k_bits",
+        "v_bits",
+        "offline_metrics",
+        "weight_plan",
+        "profile_id",
+        "consensus",
+        "ncka",
+        "urt",
+        "tensor_manifest",
+    }
+)
 
 TRIALITY_NCKA_COORDINATE_NAMES = (
     "branch_entropy.vector",
@@ -81,12 +119,18 @@ def ncka_tensor_name(field: str, profile: str = "v2") -> str:
     return f"turboquant.profile.{profile}.ncka.{field}"
 
 
-def _rotation_matrix(head_dim: int, layer: int, branch: int) -> list[float]:
+def _rotation_matrix(
+    head_dim: int,
+    layer: int,
+    branch: int,
+    *,
+    rotation_policy: str,
+) -> list[float]:
     size = head_dim
     matrix = [0.0] * (size * size)
     for index in range(size):
         matrix[index * size + index] = 1.0
-    if branch == 0:
+    if branch == 0 or rotation_policy == TRIALITY_IDENTITY_DEV_ROTATION_POLICY:
         return matrix
 
     sign = 1.0 if branch == 1 else -1.0
@@ -129,11 +173,18 @@ def build_triality_v2_tensors(payload: dict[str, Any]) -> dict[str, dict[str, An
     if TRIALITY_PROFILE_ID_PATTERN.fullmatch(profile) is None:
         raise ValueError("schema-v2 profile_id must be a safe non-empty token")
     consensus = payload["consensus"]
+    rotation_policy = str(payload.get("rotation_policy", "block_so8_learned"))
     tensors: dict[str, dict[str, Any]] = {}
     for layer in range(num_layers):
         for branch, view in enumerate(TRIALITY_CONSENSUS_VIEWS):
             tensors[rotation_tensor_name(layer, view, profile)] = _tensor(
-                [head_dim, head_dim], _rotation_matrix(head_dim, layer, branch)
+                [head_dim, head_dim],
+                _rotation_matrix(
+                    head_dim,
+                    layer,
+                    branch,
+                    rotation_policy=rotation_policy,
+                ),
             )
 
     for field in ("weights", "bias", "scale", "temperature"):
@@ -274,6 +325,7 @@ def build_triality_v2_extension(
     head_dim: int,
     num_layers: int,
     profile_id: str = "v2",
+    rotation_policy: str = "block_so8_learned",
     enable_ncka: bool = False,
     enable_urt: bool = False,
 ) -> dict[str, Any]:
@@ -284,6 +336,11 @@ def build_triality_v2_extension(
         raise ValueError("schema-v2 head_dim must be a positive multiple of 8")
     if TRIALITY_PROFILE_ID_PATTERN.fullmatch(profile_id) is None:
         raise ValueError("schema-v2 profile_id must be a safe non-empty token")
+    if rotation_policy not in TRIALITY_V2_ROTATION_POLICIES:
+        raise ValueError(
+            "schema-v2 rotation_policy must be one of "
+            + ", ".join(sorted(TRIALITY_V2_ROTATION_POLICIES))
+        )
     rows = [
         {
             "layer": layer,
@@ -363,7 +420,12 @@ def build_triality_v2_extension(
         "urt": urt,
     }
     tensors = build_triality_v2_tensors(
-        {"head_dim": head_dim, "num_layers": num_layers, **extension}
+        {
+            "head_dim": head_dim,
+            "num_layers": num_layers,
+            "rotation_policy": rotation_policy,
+            **extension,
+        }
     )
     extension["tensor_manifest"] = _tensor_manifest(tensors)
     ncka["controller_sha256"] = (
@@ -392,6 +454,7 @@ def triality_v2_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "hypura.turboquant.triality.profile_id": payload["profile_id"],
         "hypura.turboquant.triality.execution": consensus["execution"],
+        "hypura.turboquant.triality.override_allowed": False,
         "hypura.turboquant.triality.view_count": consensus["view_count"],
         "hypura.turboquant.triality.views": consensus["views"],
         "hypura.turboquant.triality.weights": flatten("weights"),
@@ -434,16 +497,44 @@ _METADATA_KEY_EXTENSION = build_triality_v2_extension(head_dim=8, num_layers=1)
 TRIALITY_V2_METADATA_KEYS = tuple(triality_v2_metadata(_METADATA_KEY_EXTENSION))
 
 
+def _strict_bool(value: object, *, name: str) -> bool:
+    if type(value) is not bool:
+        raise ValueError(f"{name} must be a boolean")
+    return value
+
+
+def _strict_int(value: object, *, name: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{name} must be an integer")
+    return value
+
+
+def _strict_float(value: object, *, name: str) -> float:
+    if type(value) is not float or not math.isfinite(value):
+        raise ValueError(f"{name} must be a finite floating-point value")
+    return value
+
+
+def _strict_string(value: object, *, name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string")
+    return value
+
+
+def _strict_string_list(value: object, *, name: str) -> list[str]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"{name} must be an array of strings")
+    return value
+
+
 def _finite_vector(
     value: object, *, name: str, length: int | None = None
 ) -> list[float]:
     if not isinstance(value, list):
         raise ValueError(f"{name} must be an array")
-    if any(
-        isinstance(item, bool) or not isinstance(item, (int, float)) for item in value
-    ):
-        raise ValueError(f"{name} must contain numeric values")
-    values = [float(item) for item in value]
+    if any(type(item) is not float for item in value):
+        raise ValueError(f"{name} must contain floating-point values")
+    values = value
     if length is not None and len(values) != length:
         raise ValueError(f"{name} must contain {length} values")
     if not all(math.isfinite(item) for item in values):
@@ -471,7 +562,7 @@ def _require_exact_keys(
     value: dict[str, Any], expected: set[str], *, name: str
 ) -> None:
     missing = sorted(expected - set(value))
-    extra = sorted(set(value) - expected)
+    extra = sorted(str(key) for key in set(value) - expected)
     if missing or extra:
         details: list[str] = []
         if missing:
@@ -487,6 +578,109 @@ def _is_sha256(value: object) -> bool:
 
 def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
     """Fail closed on malformed schema-v2 payloads and tensor manifests."""
+    paper_fidelity = _strict_bool(
+        payload.get("paper_fidelity"), name="schema-v2 paper_fidelity"
+    )
+    expected_top_level_keys = set(_TRIALITY_V2_TOP_LEVEL_KEYS)
+    expected_top_level_keys.add("paper_config" if paper_fidelity else "pareto_profile")
+    if "source_manifest" in payload:
+        expected_top_level_keys.add("source_manifest")
+    _require_exact_keys(payload, expected_top_level_keys, name="schema-v2 payload")
+
+    for key in (
+        "schema_kind",
+        "codec",
+        "mode",
+        "model_family",
+        "runtime_mode",
+        "rotation_policy",
+        "triality_view",
+        "cache_type_k",
+        "cache_type_v",
+        "profile_id",
+    ):
+        _strict_string(payload[key], name=f"schema-v2 {key}")
+    for key in (
+        "schema_version",
+        "head_dim",
+        "num_layers",
+        "num_kv_heads",
+        "rotation_block_size",
+        "rotation_seed",
+    ):
+        _strict_int(payload[key], name=f"schema-v2 {key}")
+    for key in (
+        "triality_mix",
+        "orthogonality_error",
+        "determinant_error_max",
+        "k_bits",
+        "v_bits",
+    ):
+        _strict_float(payload[key], name=f"schema-v2 {key}")
+    for key in ("view_bundle_complete", "paper_fidelity"):
+        _strict_bool(payload[key], name=f"schema-v2 {key}")
+    for key in ("offline_metrics", "weight_plan"):
+        if not isinstance(payload[key], dict):
+            raise ValueError(f"schema-v2 {key} must be an object")
+    conditional_key = "paper_config" if paper_fidelity else "pareto_profile"
+    if not isinstance(payload[conditional_key], dict):
+        raise ValueError(f"schema-v2 {conditional_key} must be an object")
+    if "source_manifest" in payload and not isinstance(
+        payload["source_manifest"], dict
+    ):
+        raise ValueError("schema-v2 source_manifest must be an object")
+    if payload["schema_version"] != TRIALITY_SCHEMA_V2:
+        raise ValueError("unsupported schema-v2 schema_version")
+    rotation_policy = payload["rotation_policy"]
+    if rotation_policy not in TRIALITY_V2_ROTATION_POLICIES:
+        raise ValueError(
+            "schema-v2 rotation_policy must be one of "
+            + ", ".join(sorted(TRIALITY_V2_ROTATION_POLICIES))
+        )
+
+    weight_plan = payload["weight_plan"]
+    if "enabled" in weight_plan:
+        _strict_bool(weight_plan["enabled"], name="schema-v2 weight_plan.enabled")
+    for key in (
+        "schema",
+        "codec",
+        "model_family",
+        "source_ftype",
+        "policy",
+        "modality_scope",
+    ):
+        _strict_string(weight_plan.get(key), name=f"schema-v2 weight_plan.{key}")
+    _strict_string_list(
+        weight_plan.get("protected_roles"),
+        name="schema-v2 weight_plan.protected_roles",
+    )
+    protected_layers = weight_plan.get("protected_layers")
+    if not isinstance(protected_layers, list):
+        raise ValueError("schema-v2 weight_plan.protected_layers must be an array")
+    for index, layer in enumerate(protected_layers):
+        _strict_int(layer, name=f"schema-v2 weight_plan.protected_layers[{index}]")
+    tensor_plan = weight_plan.get("tensor_plan")
+    if not isinstance(tensor_plan, dict) or any(
+        not isinstance(name, str) or not isinstance(codec, str)
+        for name, codec in tensor_plan.items()
+    ):
+        raise ValueError(
+            "schema-v2 weight_plan.tensor_plan must map strings to strings"
+        )
+    if rotation_policy == TRIALITY_IDENTITY_DEV_ROTATION_POLICY:
+        source_manifest = payload.get("source_manifest")
+        if (
+            not isinstance(source_manifest, dict)
+            or source_manifest.get("development_identity_views") is not True
+        ):
+            raise ValueError(
+                "identity_dev rotation_policy requires the development identity marker"
+            )
+        if weight_plan.get("enabled") is not False:
+            raise ValueError(
+                "identity_dev rotation_policy requires disabled weight conversion"
+            )
+
     consensus = _required_object(payload, "consensus")
     ncka = _required_object(payload, "ncka")
     urt = _required_object(payload, "urt")
@@ -513,19 +707,25 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
         },
         name="consensus",
     )
-    if int(consensus["schema_version"]) != 1:
+    if _strict_int(consensus["schema_version"], name="consensus.schema_version") != 1:
         raise ValueError("unsupported consensus schema_version")
 
-    if int(consensus.get("view_count", 0)) != TRIALITY_CONSENSUS_BRANCH_COUNT:
+    if (
+        _strict_int(consensus["view_count"], name="consensus.view_count")
+        != TRIALITY_CONSENSUS_BRANCH_COUNT
+    ):
         raise ValueError("schema-v2 consensus view_count must be 3")
-    if consensus.get("views") != list(TRIALITY_CONSENSUS_VIEWS):
+    _strict_string_list(consensus["views"], name="consensus.views")
+    if consensus["views"] != list(TRIALITY_CONSENSUS_VIEWS):
         raise ValueError("schema-v2 consensus views must use canonical branch order")
     if consensus.get("execution") != "attention_logit_consensus":
         raise ValueError(
             "schema-v2 consensus execution must be 'attention_logit_consensus'"
         )
-    threshold = float(consensus.get("js_fallback_threshold", 0.0))
-    if not math.isfinite(threshold) or threshold < 0.0:
+    threshold = _strict_float(
+        consensus["js_fallback_threshold"], name="consensus.js_fallback_threshold"
+    )
+    if threshold < 0.0:
         raise ValueError(
             "schema-v2 js_fallback_threshold must be finite and non-negative"
         )
@@ -535,8 +735,10 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
     if consensus.get("fallback_policy") != "static":
         raise ValueError("schema-v2 consensus fallback_policy must be 'static'")
 
-    num_layers = int(payload.get("num_layers", 0))
-    head_dim = int(payload.get("head_dim", 0))
+    num_layers = payload["num_layers"]
+    head_dim = payload["head_dim"]
+    if num_layers <= 0:
+        raise ValueError("schema-v2 num_layers must be positive")
     if head_dim <= 0 or head_dim % 8 != 0:
         raise ValueError("schema-v2 head_dim must be a positive multiple of 8")
     rows = consensus.get("rows")
@@ -545,13 +747,15 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
             "schema-v2 consensus rows must contain exactly one row per layer"
         )
     for layer, row in enumerate(rows):
-        if not isinstance(row, dict) or int(row.get("layer", -1)) != layer:
-            raise ValueError("schema-v2 consensus row layer indices must be contiguous")
+        if not isinstance(row, dict):
+            raise ValueError("schema-v2 consensus rows must be objects")
         _require_exact_keys(
             row,
             {"layer", "weights", "bias", "scale", "temperature"},
             name=f"consensus.rows[{layer}]",
         )
+        if _strict_int(row["layer"], name=f"consensus.rows[{layer}].layer") != layer:
+            raise ValueError("schema-v2 consensus row layer indices must be contiguous")
         _probability_row(row.get("weights"), name=f"consensus.rows[{layer}].weights")
         _finite_vector(row.get("bias"), name=f"consensus.rows[{layer}].bias", length=3)
         scales = _finite_vector(
@@ -585,14 +789,32 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
         },
         name="ncka",
     )
+    ncka_enabled = _strict_bool(ncka["enabled"], name="ncka.enabled")
+    ncka_required = _strict_bool(ncka["required"], name="ncka.required")
+    ncka_schema_version = _strict_int(
+        ncka["schema_version"], name="ncka.schema_version"
+    )
+    outer_count = _strict_int(ncka["outer_count"], name="ncka.outer_count")
+    knot_count = _strict_int(ncka["knot_count"], name="ncka.knot_count")
+    ncka_s3_equivariant = _strict_bool(
+        ncka["s3_equivariant"], name="ncka.s3_equivariant"
+    )
+    _strict_string(ncka["controller_type"], name="ncka.controller_type")
+    _strict_string_list(ncka["coordinate_names"], name="ncka.coordinate_names")
+    for key in (
+        "fallback_policy",
+        "normalisation_sha256",
+        "controller_sha256",
+    ):
+        _strict_string(ncka[key], name=f"ncka.{key}")
     if ncka.get("fallback_policy") != "static":
         raise ValueError("NC-KA fallback_policy must be 'static'")
     _probability_row(ncka.get("fallback_weights"), name="ncka.fallback_weights")
-    if bool(ncka.get("enabled")):
-        if int(ncka.get("schema_version", 0)) != TRIALITY_NCKA_SCHEMA_VERSION:
+    if ncka_enabled:
+        if ncka_schema_version != TRIALITY_NCKA_SCHEMA_VERSION:
             raise ValueError("unsupported NC-KA schema_version")
         supported = ncka.get("controller_type") == TRIALITY_NCKA_CONTROLLER_TYPE
-        if not supported and bool(ncka.get("required")):
+        if not supported and ncka_required:
             raise ValueError("required NC-KA controller type is unsupported")
         if not supported:
             if ncka.get("fallback_policy") != "static":
@@ -601,9 +823,9 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
                 )
         if ncka.get("coordinate_names") != list(TRIALITY_NCKA_COORDINATE_NAMES):
             raise ValueError("enabled NC-KA requires canonical coordinate_names")
-        if not bool(ncka.get("s3_equivariant")):
+        if not ncka_s3_equivariant:
             raise ValueError("finite-moment NC-KA must declare s3_equivariant")
-        if int(ncka.get("outer_count", 0)) <= 0 or int(ncka.get("knot_count", 0)) < 2:
+        if outer_count <= 0 or knot_count < 2:
             raise ValueError(
                 "enabled NC-KA requires positive outer_count and at least two knots"
             )
@@ -620,16 +842,16 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
         if ncka["normalisation_sha256"] != expected_normalisation_sha256:
             raise ValueError("NC-KA normalisation hash mismatch")
     else:
-        if bool(ncka.get("required")):
+        if ncka_required:
             raise ValueError("disabled NC-KA cannot be required")
         if any(
             (
-                int(ncka.get("schema_version", 0)) != 0,
+                ncka_schema_version != 0,
                 ncka.get("controller_type") != "",
                 ncka.get("coordinate_names") != [],
-                int(ncka.get("outer_count", 0)) != 0,
-                int(ncka.get("knot_count", 0)) != 0,
-                bool(ncka.get("s3_equivariant")),
+                outer_count != 0,
+                knot_count != 0,
+                ncka_s3_equivariant,
                 ncka.get("controller_sha256") != "",
                 ncka.get("normalisation_sha256") != "",
             )
@@ -652,8 +874,26 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
         },
         name="urt",
     )
-    if bool(urt.get("enabled")):
-        if int(urt.get("schema_version", 0)) != TRIALITY_URT_SCHEMA_VERSION:
+    urt_enabled = _strict_bool(urt["enabled"], name="urt.enabled")
+    urt_schema_version = _strict_int(urt["schema_version"], name="urt.schema_version")
+    consistency_tolerance = _strict_float(
+        urt["consistency_tolerance"], name="urt.consistency_tolerance"
+    )
+    moment_degree = _strict_int(urt["moment_degree"], name="urt.moment_degree")
+    for key in (
+        "abstract_algebra_id",
+        "operator_word_sha256",
+        "reference_representation",
+        "moment_manifest_sha256",
+    ):
+        _strict_string(urt[key], name=f"urt.{key}")
+    _strict_string_list(
+        urt["supported_representations"], name="urt.supported_representations"
+    )
+    if not isinstance(urt["operator_word_manifest"], dict):
+        raise ValueError("urt.operator_word_manifest must be an object")
+    if urt_enabled:
+        if urt_schema_version != TRIALITY_URT_SCHEMA_VERSION:
             raise ValueError("unsupported URT schema_version")
         manifest_value = urt.get("operator_word_manifest")
         if _sha256_text(manifest_value) != urt.get("operator_word_sha256"):
@@ -668,10 +908,9 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
             raise ValueError("URT supported_representations must be non-empty")
         if urt.get("reference_representation") not in supported_representations:
             raise ValueError("URT reference representation must be supported")
-        tolerance = float(urt.get("consistency_tolerance", 0.0))
-        if not math.isfinite(tolerance) or tolerance <= 0.0:
+        if consistency_tolerance <= 0.0:
             raise ValueError("URT consistency_tolerance must be positive")
-        if int(urt.get("moment_degree", 0)) != 4:
+        if moment_degree != 4:
             raise ValueError("URT moment_degree must be 4")
         expected_moment_hash = _sha256_text(
             {"degree": 4, "moments": ["mean", "variance", "skewness", "kurtosis"]}
@@ -681,14 +920,14 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
     else:
         if any(
             (
-                int(urt.get("schema_version", 0)) != 0,
+                urt_schema_version != 0,
                 urt.get("abstract_algebra_id") != "",
                 urt.get("operator_word_manifest") != {},
                 urt.get("operator_word_sha256") != "",
                 urt.get("reference_representation") != "",
                 urt.get("supported_representations") != [],
-                float(urt.get("consistency_tolerance", 0.0)) != 0.0,
-                int(urt.get("moment_degree", 0)) != 0,
+                consistency_tolerance != 0.0,
+                moment_degree != 0,
                 urt.get("moment_manifest_sha256") != "",
             )
         ):
@@ -703,11 +942,45 @@ def validate_triality_v2_payload(payload: dict[str, Any]) -> None:
             "schema-v2 tensor manifest key set mismatch: "
             f"missing={missing}, unexpected={extra}"
         )
+
+    for tensor_name, tensor_record in manifest.items():
+        if not isinstance(tensor_name, str) or not tensor_name:
+            raise ValueError("schema-v2 tensor manifest keys must be non-empty strings")
+        if not isinstance(tensor_record, dict):
+            raise ValueError(
+                f"schema-v2 tensor manifest record for {tensor_name} must be an object"
+            )
+        _require_exact_keys(
+            tensor_record,
+            {"dtype", "shape", "sha256"},
+            name=f"tensor_manifest[{tensor_name}]",
+        )
+        _strict_string(
+            tensor_record["dtype"], name=f"tensor_manifest[{tensor_name}].dtype"
+        )
+        if not isinstance(tensor_record["shape"], list):
+            raise ValueError(f"tensor_manifest[{tensor_name}].shape must be an array")
+        for index, dimension in enumerate(tensor_record["shape"]):
+            if (
+                _strict_int(
+                    dimension,
+                    name=f"tensor_manifest[{tensor_name}].shape[{index}]",
+                )
+                <= 0
+            ):
+                raise ValueError(
+                    f"tensor_manifest[{tensor_name}].shape dimensions must be positive"
+                )
+        if not _is_sha256(tensor_record["sha256"]):
+            raise ValueError(
+                f"tensor_manifest[{tensor_name}].sha256 must be lowercase SHA256"
+            )
+
     for name, expected in expected_manifest.items():
         actual = manifest.get(name)
         if actual != expected:
             raise ValueError(f"schema-v2 tensor manifest mismatch for {name}")
-    if bool(ncka["enabled"]):
+    if ncka_enabled:
         ncka_manifest = {
             name: item
             for name, item in expected_manifest.items()
