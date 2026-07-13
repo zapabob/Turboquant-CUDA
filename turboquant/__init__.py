@@ -57,6 +57,8 @@ from turboquant.triality_contract import (
     TRIALITY_ALLOWED_MODES,
     TRIALITY_GGUF_NAMESPACE,
     TRIALITY_GGUF_PAYLOAD_FORMAT,
+    TRIALITY_GGUF_SCHEMA_V1,
+    TRIALITY_GGUF_SCHEMA_V2,
     TRIALITY_GGUF_SCHEMA_VERSION,
     TRIALITY_PROXY_PARETO_LEGACY_ALIAS,
     TRIALITY_PROXY_PARETO_MODE,
@@ -70,6 +72,7 @@ from turboquant.triality_contract import (
 )
 from turboquant.turboquant_mse import TurboQuantMSE
 from turboquant.turboquant_prod import TurboQuantProd
+from turboquant.triality_schema_v2 import build_triality_v2_tensors
 from turboquant.types import TurboQuantMSEConfig, TurboQuantProdConfig
 from turboquant.weight_gguf import WeightGGUFConversionSummary, convert_weight_turboquant_gguf
 
@@ -98,6 +101,8 @@ __all__ = [
     "TRIALITY_ALLOWED_MODES",
     "TRIALITY_GGUF_NAMESPACE",
     "TRIALITY_GGUF_PAYLOAD_FORMAT",
+    "TRIALITY_GGUF_SCHEMA_V1",
+    "TRIALITY_GGUF_SCHEMA_V2",
     "TRIALITY_GGUF_SCHEMA_VERSION",
     "TRIALITY_PROXY_PARETO_LEGACY_ALIAS",
     "TRIALITY_PROXY_PARETO_MODE",
@@ -115,6 +120,7 @@ __all__ = [
     "build_uniform_turboquant_gguf_contract",
     "build_triality_metadata",
     "build_triality_payload",
+    "build_triality_v2_tensors",
     "evaluate_paper_attention_grid",
     "infer_gguf_attention_head_dim",
     "infer_gguf_block_count",

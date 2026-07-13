@@ -7,6 +7,14 @@ import json
 from typing import Any, Literal
 
 from turboquant.schema import build_paper_turboquant_config
+from turboquant.triality_schema_v2 import (
+    TRIALITY_PAYLOAD_FORMAT_V2,
+    TRIALITY_SCHEMA_V2,
+    build_triality_v2_extension,
+    triality_v2_metadata,
+    validate_triality_v2_metadata,
+    validate_triality_v2_payload,
+)
 
 TRIALITY_PROXY_PARETO_MODE = "triality-proxy-so8-pareto"
 TRIALITY_PROXY_PARETO_LEGACY_ALIAS = "triality-so8-pareto"
@@ -107,10 +115,16 @@ TRIALITY_SUPPORTED_PUBLIC_CACHE_TYPES_V = (
     TRIALITY_PUBLIC_CACHE_TYPE_V_TURBO2,
 )
 
-TrialityPublicMode = Literal["paper-faithful", "triality-proxy-so8-pareto", "triality-so8-pareto"]
+TrialityPublicMode = Literal[
+    "paper-faithful", "triality-proxy-so8-pareto", "triality-so8-pareto"
+]
 
 TRIALITY_GGUF_SCHEMA_VERSION = 1
+TRIALITY_GGUF_SCHEMA_V1 = TRIALITY_GGUF_SCHEMA_VERSION
+TRIALITY_GGUF_SCHEMA_V2 = TRIALITY_SCHEMA_V2
 TRIALITY_GGUF_PAYLOAD_FORMAT = "json-inline-v1"
+TRIALITY_GGUF_PAYLOAD_FORMAT_V1 = TRIALITY_GGUF_PAYLOAD_FORMAT
+TRIALITY_GGUF_PAYLOAD_FORMAT_V2 = TRIALITY_PAYLOAD_FORMAT_V2
 TRIALITY_GGUF_NAMESPACE = "hypura.turboquant"
 ELT_LOOPED_QWEN35_MODEL_FAMILY = "ELT/Qwen3.5-looped"
 TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES = ("bf16", "f16", "q8_0")
@@ -173,12 +187,17 @@ def normalize_triality_view(view: str) -> str:
         return TRIALITY_VIEW_ALIASES[normalized_view]
     except KeyError as exc:
         supported = ", ".join(sorted(TRIALITY_VIEW_ALIASES))
-        raise ValueError(f"Unsupported triality_view {view!r}; expected one of {supported}") from exc
+        raise ValueError(
+            f"Unsupported triality_view {view!r}; expected one of {supported}"
+        ) from exc
 
 
 def normalize_triality_runtime_mode(runtime_mode: str) -> str:
     normalized_mode = runtime_mode.strip().lower().replace("-", "_")
-    alias_map = {alias.replace("-", "_"): target for alias, target in TRIALITY_RUNTIME_MODE_ALIASES.items()}
+    alias_map = {
+        alias.replace("-", "_"): target
+        for alias, target in TRIALITY_RUNTIME_MODE_ALIASES.items()
+    }
     return alias_map.get(normalized_mode, runtime_mode)
 
 
@@ -190,7 +209,8 @@ def triality_runtime_mode_for_view(view: str) -> str:
 def normalize_public_cache_type_k(cache_type_k: str) -> str:
     normalized_cache_type_k = cache_type_k.strip().lower().replace("-", "_")
     alias_map = {
-        alias.replace("-", "_"): target for alias, target in TRIALITY_PUBLIC_CACHE_TYPE_K_ALIASES.items()
+        alias.replace("-", "_"): target
+        for alias, target in TRIALITY_PUBLIC_CACHE_TYPE_K_ALIASES.items()
     }
     try:
         return alias_map[normalized_cache_type_k]
@@ -204,7 +224,8 @@ def normalize_public_cache_type_k(cache_type_k: str) -> str:
 def normalize_public_cache_type_v(cache_type_v: str) -> str:
     normalized_cache_type_v = cache_type_v.strip().lower().replace("-", "_")
     alias_map = {
-        alias.replace("-", "_"): target for alias, target in TRIALITY_PUBLIC_CACHE_TYPE_V_ALIASES.items()
+        alias.replace("-", "_"): target
+        for alias, target in TRIALITY_PUBLIC_CACHE_TYPE_V_ALIASES.items()
     }
     try:
         return alias_map[normalized_cache_type_v]
@@ -235,7 +256,9 @@ def validate_triality_cache_types(
     normalized_runtime_mode = normalize_triality_runtime_mode(runtime_mode)
     normalized_cache_type_k = normalize_public_cache_type_k(cache_type_k)
     normalize_public_cache_type_v(cache_type_v)
-    expected_cache_type_k = public_cache_type_k_for_runtime_mode(normalized_runtime_mode)
+    expected_cache_type_k = public_cache_type_k_for_runtime_mode(
+        normalized_runtime_mode
+    )
     if normalized_cache_type_k != expected_cache_type_k:
         raise ValueError(
             "triality runtime_mode/cache_type_k mismatch: "
@@ -278,7 +301,9 @@ def _is_qwen35_family(model_family: str) -> bool:
 
 def _is_gemma4_family(model_family: str) -> bool:
     normalized_family = normalize_model_family(model_family)
-    return "gemma-4" in normalized_family or ("gemma" in normalized_family and " 4" in normalized_family)
+    return "gemma-4" in normalized_family or (
+        "gemma" in normalized_family and " 4" in normalized_family
+    )
 
 
 def _is_gemma4_multimodal_family(model_family: str) -> bool:
@@ -307,7 +332,9 @@ def expected_modalities(
 ) -> list[str]:
     normalized_family = normalize_model_family(model_family)
     resolved_scope = (modality_scope or "").strip().lower()
-    if resolved_scope == "full-multimodal" or _is_gemma4_multimodal_family(normalized_family):
+    if resolved_scope == "full-multimodal" or _is_gemma4_multimodal_family(
+        normalized_family
+    ):
         return ["text", "image", "audio"]
     return ["text"]
 
@@ -350,8 +377,12 @@ def build_triality_fixture_manifest(
     text_model_path: str,
     payload_hash: str,
     metadata_hash: str,
+    metrics_hash: str,
+    text_model_hash: str,
+    triality_schema_version: int,
     modality_scope: str | None = None,
     mmproj_model_path: str | None = None,
+    mmproj_model_hash: str | None = None,
 ) -> dict[str, Any]:
     modalities = expected_modalities(
         model_family=model_family,
@@ -361,6 +392,17 @@ def build_triality_fixture_manifest(
     if mmproj_required and not mmproj_model_path:
         raise ValueError(
             "mmproj_model_path is required for full-multimodal Triality fixture manifests"
+        )
+    if mmproj_required != bool(mmproj_model_hash):
+        raise ValueError(
+            "mmproj_model_hash must be present exactly when an mmproj is required"
+        )
+    if triality_schema_version not in {
+        TRIALITY_GGUF_SCHEMA_V1,
+        TRIALITY_GGUF_SCHEMA_V2,
+    }:
+        raise ValueError(
+            f"Unsupported Triality schema_version {triality_schema_version}"
         )
 
     paths: dict[str, str | None] = {
@@ -375,6 +417,7 @@ def build_triality_fixture_manifest(
     return {
         "schema_version": TRIALITY_FIXTURE_MANIFEST_VERSION,
         "fixture_kind": "triality-fixture-bundle",
+        "triality_schema_version": triality_schema_version,
         "mode": resolve_triality_mode_spec(mode).mode,
         "model_family": model_family,
         "source_ftype": source_ftype,
@@ -391,6 +434,9 @@ def build_triality_fixture_manifest(
         "hashes": {
             "payload_sha256": payload_hash,
             "metadata_sha256": metadata_hash,
+            "offline_metrics_sha256": metrics_hash,
+            "text_model_sha256": text_model_hash,
+            "mmproj_model_sha256": mmproj_model_hash,
         },
     }
 
@@ -441,7 +487,9 @@ def build_default_weight_plan(
             "output_head",
         ]
         resolved_modality_scope = modality_scope or (
-            "full-multimodal" if _is_gemma4_multimodal_family(normalized_family) else "text-only"
+            "full-multimodal"
+            if _is_gemma4_multimodal_family(normalized_family)
+            else "text-only"
         )
     else:
         resolved_policy = policy or "shared-decoder-role-aware"
@@ -477,10 +525,14 @@ def validate_weight_plan(
         model_family=model_family,
         num_layers=num_layers,
         source_ftype=str(weight_plan.get("source_ftype", "q8_0")),
-        policy=str(weight_plan.get("policy")) if weight_plan.get("policy") is not None else None,
+        policy=str(weight_plan.get("policy"))
+        if weight_plan.get("policy") is not None
+        else None,
         protected_roles=list(weight_plan.get("protected_roles", [])),
         protected_layers=[int(v) for v in weight_plan.get("protected_layers", [])],
-        modality_scope=str(weight_plan.get("modality_scope")) if weight_plan.get("modality_scope") is not None else None,
+        modality_scope=str(weight_plan.get("modality_scope"))
+        if weight_plan.get("modality_scope") is not None
+        else None,
     )
     if str(weight_plan.get("schema")) != "hypura.turboquant.weight.v1":
         raise ValueError("weight_plan.schema must be 'hypura.turboquant.weight.v1'")
@@ -499,7 +551,9 @@ def validate_weight_plan(
                 f"{tensor_codec!r}; expected one of {', '.join(TRIALITY_WEIGHT_ALLOWED_TENSOR_CODECS)}"
             )
     if "tq4_1s" not in {str(codec).strip().lower() for codec in tensor_plan.values()}:
-        raise ValueError("weight_plan.tensor_plan must include at least one tq4_1s target")
+        raise ValueError(
+            "weight_plan.tensor_plan must include at least one tq4_1s target"
+        )
     default_tensor_plan = expected_weight_plan["tensor_plan"]
     unknown_tensor_names = set(tensor_plan) - set(default_tensor_plan)
     if unknown_tensor_names:
@@ -555,9 +609,15 @@ def build_triality_payload(
     cache_type_v: str | None = None,
     source_manifest: dict[str, Any] | None = None,
     offline_metrics: dict[str, Any] | None = None,
+    schema_version: int = TRIALITY_GGUF_SCHEMA_VERSION,
+    profile_id: str = "v2",
+    enable_ncka: bool = False,
+    enable_urt: bool = False,
 ) -> dict[str, Any]:
     spec = resolve_triality_mode_spec(mode)
-    resolved_rotation_seed = spec.rotation_seed if rotation_seed is None else rotation_seed
+    resolved_rotation_seed = (
+        spec.rotation_seed if rotation_seed is None else rotation_seed
+    )
     resolved_triality_view = normalize_triality_view(spec.triality_view)
     resolved_runtime_mode = normalize_triality_runtime_mode(spec.runtime_mode)
     resolved_cache_type_k = public_cache_type_k_for_runtime_mode(resolved_runtime_mode)
@@ -573,9 +633,12 @@ def build_triality_payload(
     if num_kv_heads <= 0:
         raise ValueError(f"num_kv_heads must be positive, got {num_kv_heads}")
 
+    if schema_version not in {TRIALITY_GGUF_SCHEMA_V1, TRIALITY_GGUF_SCHEMA_V2}:
+        raise ValueError(f"Unsupported Triality schema_version {schema_version}")
+
     payload: dict[str, Any] = {
         "schema_kind": "triality_gguf_payload",
-        "schema_version": TRIALITY_GGUF_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "codec": "tq4_1s",
         "mode": spec.mode,
         "model_family": model_family,
@@ -591,8 +654,14 @@ def build_triality_payload(
         "cache_type_k": resolved_cache_type_k,
         "cache_type_v": resolved_cache_type_v,
         "view_bundle_complete": view_bundle_complete,
-        "orthogonality_error": float(offline_metrics.get("orthogonality_error", 0.0) if offline_metrics else 0.0),
-        "determinant_error_max": float(offline_metrics.get("determinant_error_max", 0.0) if offline_metrics else 0.0),
+        "orthogonality_error": float(
+            offline_metrics.get("orthogonality_error", 0.0) if offline_metrics else 0.0
+        ),
+        "determinant_error_max": float(
+            offline_metrics.get("determinant_error_max", 0.0)
+            if offline_metrics
+            else 0.0
+        ),
         "paper_fidelity": spec.paper_fidelity,
         "k_bits": float(spec.k_bits),
         "v_bits": float(spec.v_bits),
@@ -627,6 +696,17 @@ def build_triality_payload(
     if source_manifest is not None:
         payload["source_manifest"] = source_manifest
 
+    if schema_version == TRIALITY_GGUF_SCHEMA_V2:
+        payload.update(
+            build_triality_v2_extension(
+                head_dim=head_dim,
+                num_layers=num_layers,
+                profile_id=profile_id,
+                enable_ncka=enable_ncka,
+                enable_urt=enable_urt,
+            )
+        )
+
     validate_triality_payload(payload)
     return payload
 
@@ -651,9 +731,12 @@ def build_triality_metadata(
     cache_type_k: str | None = None,
     cache_type_v: str | None = None,
     source_profile: str | None = None,
+    schema_version: int | None = None,
 ) -> dict[str, Any]:
     spec = resolve_triality_mode_spec(mode)
-    resolved_triality_view = normalize_triality_view(triality_view or spec.triality_view)
+    resolved_triality_view = normalize_triality_view(
+        triality_view or spec.triality_view
+    )
     resolved_runtime_mode = normalize_triality_runtime_mode(
         runtime_mode
         or (
@@ -674,8 +757,33 @@ def build_triality_metadata(
         cache_type_k=resolved_cache_type_k,
         cache_type_v=resolved_cache_type_v,
     )
+    try:
+        payload = json.loads(payload_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError("payload_json must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("payload_json must decode to an object")
+    payload_schema_version = int(payload.get("schema_version", 0))
+    resolved_schema_version = (
+        payload_schema_version if schema_version is None else schema_version
+    )
+    if resolved_schema_version != payload_schema_version:
+        raise ValueError("metadata schema_version must match payload schema_version")
+    if resolved_schema_version not in {
+        TRIALITY_GGUF_SCHEMA_V1,
+        TRIALITY_GGUF_SCHEMA_V2,
+    }:
+        raise ValueError(
+            f"Unsupported Triality schema_version {resolved_schema_version}"
+        )
+    payload_format = (
+        TRIALITY_GGUF_PAYLOAD_FORMAT_V2
+        if resolved_schema_version == TRIALITY_GGUF_SCHEMA_V2
+        else TRIALITY_GGUF_PAYLOAD_FORMAT
+    )
+
     metadata = {
-        "hypura.turboquant.schema_version": TRIALITY_GGUF_SCHEMA_VERSION,
+        "hypura.turboquant.schema_version": resolved_schema_version,
         "hypura.turboquant.enabled": True,
         "hypura.turboquant.mode": spec.mode,
         "hypura.turboquant.codec": "tq4_1s",
@@ -698,7 +806,7 @@ def build_triality_metadata(
         else bool(paper_fidelity),
         "hypura.turboquant.k_bits": float(spec.k_bits if k_bits is None else k_bits),
         "hypura.turboquant.v_bits": float(spec.v_bits if v_bits is None else v_bits),
-        "hypura.turboquant.payload_format": TRIALITY_GGUF_PAYLOAD_FORMAT,
+        "hypura.turboquant.payload_format": payload_format,
         "hypura.turboquant.payload_bytes": len(payload_json.encode("utf-8")),
         "hypura.turboquant.payload_json": payload_json,
         "hypura.turboquant.runtime_mode": resolved_runtime_mode,
@@ -710,9 +818,13 @@ def build_triality_metadata(
         weight_payload_json = payload_json_dumps(weight_plan)
         metadata.update(
             {
-                "hypura.turboquant.weight.enabled": bool(weight_plan.get("enabled", True)),
+                "hypura.turboquant.weight.enabled": bool(
+                    weight_plan.get("enabled", True)
+                ),
                 "hypura.turboquant.weight.codec": str(weight_plan["codec"]),
-                "hypura.turboquant.weight.source_ftype": str(weight_plan["source_ftype"]),
+                "hypura.turboquant.weight.source_ftype": str(
+                    weight_plan["source_ftype"]
+                ),
                 "hypura.turboquant.weight.policy": str(weight_plan["policy"]),
                 "hypura.turboquant.weight.protected_roles": json.dumps(
                     list(weight_plan.get("protected_roles", [])),
@@ -725,13 +837,16 @@ def build_triality_metadata(
                 "hypura.turboquant.weight.modality_scope": str(
                     weight_plan.get("modality_scope", "text-only")
                 ),
-                "hypura.turboquant.weight.payload_format": TRIALITY_GGUF_PAYLOAD_FORMAT,
+                "hypura.turboquant.weight.payload_format": TRIALITY_GGUF_PAYLOAD_FORMAT_V1,
                 "hypura.turboquant.weight.payload_bytes": len(
                     weight_payload_json.encode("utf-8")
                 ),
                 "hypura.turboquant.weight.payload_json": weight_payload_json,
             }
         )
+
+    if resolved_schema_version == TRIALITY_GGUF_SCHEMA_V2:
+        metadata.update(triality_v2_metadata(payload))
 
     validate_triality_metadata(metadata)
     return metadata
@@ -740,10 +855,9 @@ def build_triality_metadata(
 def validate_triality_payload(payload: dict[str, Any]) -> None:
     if payload.get("schema_kind") != "triality_gguf_payload":
         raise ValueError("payload schema_kind must be 'triality_gguf_payload'")
-    if int(payload.get("schema_version", 0)) != TRIALITY_GGUF_SCHEMA_VERSION:
-        raise ValueError(
-            f"payload schema_version must be {TRIALITY_GGUF_SCHEMA_VERSION}, got {payload.get('schema_version')!r}"
-        )
+    schema_version = int(payload.get("schema_version", 0))
+    if schema_version not in {TRIALITY_GGUF_SCHEMA_V1, TRIALITY_GGUF_SCHEMA_V2}:
+        raise ValueError(f"Unsupported payload schema_version {schema_version}")
     if str(payload.get("codec", "")).strip().lower() != "tq4_1s":
         raise ValueError("payload codec must be 'tq4_1s'")
     resolve_triality_mode_spec(str(payload.get("mode")))
@@ -753,14 +867,20 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
         )
     normalized_view = normalize_triality_view(str(payload.get("triality_view", "none")))
     runtime_mode = normalize_triality_runtime_mode(str(payload.get("runtime_mode", "")))
-    cache_type_k = normalize_public_cache_type_k(
-        str(payload.get("cache_type_k", public_cache_type_k_for_runtime_mode(runtime_mode)))
-    )
+    cache_type_k_raw = payload.get("cache_type_k")
+    if cache_type_k_raw is None:
+        if runtime_mode == "paper-key-only":
+            cache_type_k_raw = TRIALITY_PUBLIC_CACHE_TYPE_K_VECTOR
+        else:
+            cache_type_k_raw = public_cache_type_k_for_runtime_mode(runtime_mode)
+    cache_type_k = normalize_public_cache_type_k(str(cache_type_k_raw))
     cache_type_v = normalize_public_cache_type_v(
         str(payload.get("cache_type_v", TRIALITY_PUBLIC_CACHE_TYPE_V_Q8_0))
     )
     if runtime_mode not in {"paper-key-only", *TRIALITY_SUPPORTED_RUNTIME_MODES}:
-        raise ValueError(f"Unsupported payload runtime_mode {payload.get('runtime_mode')!r}")
+        raise ValueError(
+            f"Unsupported payload runtime_mode {payload.get('runtime_mode')!r}"
+        )
     if runtime_mode != "paper-key-only":
         validate_triality_runtime_pair(
             runtime_mode=runtime_mode,
@@ -775,15 +895,21 @@ def validate_triality_payload(payload: dict[str, Any]) -> None:
     orthogonality_error = float(payload.get("orthogonality_error", 0.0))
     determinant_error_max = float(payload.get("determinant_error_max", 0.0))
     if orthogonality_error < 0.0 or determinant_error_max < 0.0:
-        raise ValueError("payload orthogonality and determinant errors must be non-negative")
+        raise ValueError(
+            "payload orthogonality and determinant errors must be non-negative"
+        )
     weight_plan = payload.get("weight_plan")
     if not isinstance(weight_plan, dict):
         raise ValueError("payload must include a weight_plan object")
     validate_weight_plan(
         weight_plan,
-        model_family=str(weight_plan.get("model_family", payload.get("model_family", "generic"))),
+        model_family=str(
+            weight_plan.get("model_family", payload.get("model_family", "generic"))
+        ),
         num_layers=int(payload.get("num_layers", 0)),
     )
+    if schema_version == TRIALITY_GGUF_SCHEMA_V2:
+        validate_triality_v2_payload(payload)
 
 
 def validate_triality_metadata(metadata: dict[str, Any]) -> None:
@@ -795,14 +921,14 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
     spec = resolve_triality_mode_spec(str(mode))
 
     schema_version = int(metadata["hypura.turboquant.schema_version"])
-    if schema_version != TRIALITY_GGUF_SCHEMA_VERSION:
-        raise ValueError(
-            f"Unsupported Triality schema_version {schema_version}; expected {TRIALITY_GGUF_SCHEMA_VERSION}"
-        )
+    if schema_version not in {TRIALITY_GGUF_SCHEMA_V1, TRIALITY_GGUF_SCHEMA_V2}:
+        raise ValueError(f"Unsupported Triality schema_version {schema_version}")
 
     codec = str(metadata["hypura.turboquant.codec"]).strip().lower()
     if codec != "tq4_1s":
-        raise ValueError(f"Unsupported hypura.turboquant.codec {codec!r}; expected 'tq4_1s'")
+        raise ValueError(
+            f"Unsupported hypura.turboquant.codec {codec!r}; expected 'tq4_1s'"
+        )
 
     rotation_block_size = int(metadata["hypura.turboquant.rotation_block_size"])
     if rotation_block_size != TRIALITY_ROTATION_BLOCK_SIZE:
@@ -812,22 +938,37 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
         )
 
     payload_format = str(metadata["hypura.turboquant.payload_format"])
-    if payload_format != TRIALITY_GGUF_PAYLOAD_FORMAT:
+    expected_payload_format = (
+        TRIALITY_GGUF_PAYLOAD_FORMAT_V2
+        if schema_version == TRIALITY_GGUF_SCHEMA_V2
+        else TRIALITY_GGUF_PAYLOAD_FORMAT
+    )
+    if payload_format != expected_payload_format:
         raise ValueError(
-            f"Unsupported Triality payload_format {payload_format!r}; expected {TRIALITY_GGUF_PAYLOAD_FORMAT!r}"
+            f"Unsupported Triality payload_format {payload_format!r}; expected {expected_payload_format!r}"
         )
 
-    normalized_view = normalize_triality_view(str(metadata["hypura.turboquant.triality_view"]))
-    runtime_mode = normalize_triality_runtime_mode(str(metadata.get("hypura.turboquant.runtime_mode", spec.runtime_mode)))
-    cache_type_k = normalize_public_cache_type_k(str(metadata["hypura.turboquant.cache_type_k"]))
-    cache_type_v = normalize_public_cache_type_v(str(metadata["hypura.turboquant.cache_type_v"]))
+    normalized_view = normalize_triality_view(
+        str(metadata["hypura.turboquant.triality_view"])
+    )
+    runtime_mode = normalize_triality_runtime_mode(
+        str(metadata.get("hypura.turboquant.runtime_mode", spec.runtime_mode))
+    )
+    cache_type_k = normalize_public_cache_type_k(
+        str(metadata["hypura.turboquant.cache_type_k"])
+    )
+    cache_type_v = normalize_public_cache_type_v(
+        str(metadata["hypura.turboquant.cache_type_v"])
+    )
     if runtime_mode not in {"paper-key-only", *TRIALITY_SUPPORTED_RUNTIME_MODES}:
         raise ValueError(f"Unsupported hypura.turboquant.runtime_mode {runtime_mode!r}")
     if runtime_mode != "paper-key-only":
         validate_triality_runtime_pair(
             runtime_mode=runtime_mode,
             triality_view=normalized_view,
-            view_bundle_complete=bool(metadata["hypura.turboquant.view_bundle_complete"]),
+            view_bundle_complete=bool(
+                metadata["hypura.turboquant.view_bundle_complete"]
+            ),
         )
         validate_triality_cache_types(
             runtime_mode=runtime_mode,
@@ -838,7 +979,9 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
     orthogonality_error = float(metadata["hypura.turboquant.orthogonality_error"])
     determinant_error_max = float(metadata["hypura.turboquant.determinant_error_max"])
     if orthogonality_error < 0.0 or determinant_error_max < 0.0:
-        raise ValueError("hypura.turboquant orthogonality/determinant errors must be non-negative")
+        raise ValueError(
+            "hypura.turboquant orthogonality/determinant errors must be non-negative"
+        )
 
     payload_json = metadata.get("hypura.turboquant.payload_json")
     payload_bytes = int(metadata["hypura.turboquant.payload_bytes"])
@@ -849,6 +992,23 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
                 "hypura.turboquant.payload_bytes does not match payload_json length: "
                 f"{payload_bytes} != {actual}"
             )
+        try:
+            parsed_payload = json.loads(str(payload_json))
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "hypura.turboquant.payload_json must be valid JSON"
+            ) from exc
+        if not isinstance(parsed_payload, dict):
+            raise ValueError("hypura.turboquant.payload_json must decode to an object")
+        validate_triality_payload(parsed_payload)
+        if int(parsed_payload.get("schema_version", 0)) != schema_version:
+            raise ValueError(
+                "metadata schema_version does not match payload schema_version"
+            )
+        if schema_version == TRIALITY_GGUF_SCHEMA_V2:
+            validate_triality_v2_metadata(metadata, parsed_payload)
+    elif schema_version == TRIALITY_GGUF_SCHEMA_V2:
+        raise ValueError("schema-v2 metadata requires hypura.turboquant.payload_json")
 
     weight_enabled = bool(metadata["hypura.turboquant.weight.enabled"])
     weight_codec = str(metadata["hypura.turboquant.weight.codec"]).strip().lower()
@@ -856,8 +1016,13 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
         raise ValueError(
             f"Unsupported hypura.turboquant.weight.codec {weight_codec!r}; expected 'tq4_1s'"
         )
-    weight_source_ftype = str(metadata["hypura.turboquant.weight.source_ftype"]).strip().lower()
-    if weight_enabled and weight_source_ftype not in TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES:
+    weight_source_ftype = (
+        str(metadata["hypura.turboquant.weight.source_ftype"]).strip().lower()
+    )
+    if (
+        weight_enabled
+        and weight_source_ftype not in TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES
+    ):
         raise ValueError(
             "Unsupported hypura.turboquant.weight.source_ftype "
             f"{weight_source_ftype!r}; expected one of {', '.join(TRIALITY_WEIGHT_ALLOWED_SOURCE_FTYPES)}"
@@ -890,7 +1055,9 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
                 "hypura.turboquant.weight.payload_json must be valid JSON"
             ) from exc
         if not isinstance(parsed_weight_payload, dict):
-            raise ValueError("hypura.turboquant.weight.payload_json must decode to an object")
+            raise ValueError(
+                "hypura.turboquant.weight.payload_json must decode to an object"
+            )
         if parsed_weight_payload.get("codec") != weight_codec:
             raise ValueError(
                 "hypura.turboquant.weight.payload_json codec does not match hypura.turboquant.weight.codec"
@@ -899,7 +1066,8 @@ def validate_triality_metadata(metadata: dict[str, Any]) -> None:
             parsed_weight_payload,
             model_family=str(parsed_weight_payload.get("model_family", "generic")),
             num_layers=max(
-                [int(v) for v in parsed_weight_payload.get("protected_layers", [])] + [0]
+                [int(v) for v in parsed_weight_payload.get("protected_layers", [])]
+                + [0]
             )
             + 1,
         )
@@ -917,6 +1085,10 @@ __all__ = [
     "TRIALITY_FIXTURE_MANIFEST_VERSION",
     "TRIALITY_GGUF_NAMESPACE",
     "TRIALITY_GGUF_PAYLOAD_FORMAT",
+    "TRIALITY_GGUF_PAYLOAD_FORMAT_V1",
+    "TRIALITY_GGUF_PAYLOAD_FORMAT_V2",
+    "TRIALITY_GGUF_SCHEMA_V1",
+    "TRIALITY_GGUF_SCHEMA_V2",
     "TRIALITY_GGUF_SCHEMA_VERSION",
     "TRIALITY_PROXY_PARETO_LEGACY_ALIAS",
     "TRIALITY_PROXY_PARETO_MODE",
