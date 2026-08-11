@@ -1,3 +1,5 @@
+
+
 # TurboQuant CUDA
 
 **TL;DR:** this is a Windows-first, offline-first TurboQuant research workspace that measures what usually gets hand-waved away: not just reconstruction, but hidden-state transport, attention behavior, GGUF packaging, and whether `TQ4_1S` / Triality artifacts actually survive the trip into a real `llama.cpp` runtime.
@@ -56,7 +58,7 @@ The latest implementation wave made the repo much closer to a full research-to-r
 - **Learned SO(8) export with explicit validity metrics**
   - orthogonality and determinant metrics are now carried through the Triality metadata line.
 - **CUDA runtime closeout for `TQ4_1S`**
-  - the vendored runtime now has a dedicated `TQ4_1S -> q8_0` scratch path for large batches, a fused packed-weight CUDA path for small decode, and real Gemma 4 CUDA smoke verification on this PC.
+  - the vendored runtime now has a dedicated `TQ4_1S -> q8_0 scratch` path for large batches, a fused packed-weight CUDA path for small decode, and real Gemma 4 CUDA smoke verification on this PC.
 - **Latest `zapabob/llama.cpp` reflection**
   - the vendored submodule now tracks `zapabob/llama.cpp` `master` at `31b900be6`, which includes the May 17, 2026 upstream sync and TheTom TurboQuant KV-cache merge line.
 - **Triality SO(8) audit by bit and view**
@@ -276,7 +278,7 @@ Run everything from the repository root, the directory containing `pyproject.tom
 ```powershell
 uv python install 3.12.9
 uv venv --python 3.12.9
-uv sync --extra cu128 --extra dev --extra hf_qwen --extra eval
+uv sync --all-extras
 uv run python scripts\env_check.py
 uv run python scripts\validate_repo_contract.py
 ```
